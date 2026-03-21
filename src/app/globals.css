@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+:root {
+  --background: #e8eef2;
+  --foreground: #0f172a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@layer components {
+  .ui-card {
+    @apply rounded-2xl border border-slate-300/35 bg-gradient-to-b from-slate-50/95 to-slate-100/80 shadow-[0_1px_0_rgba(255,255,255,0.78)_inset,0_8px_22px_rgba(2,6,23,0.08)] transition-all duration-300 ease-in-out hover:-translate-y-0.5 hover:shadow-[0_1px_0_rgba(255,255,255,0.86)_inset,0_14px_30px_rgba(2,6,23,0.14)];
+  }
+
+  .ui-card-muted {
+    @apply rounded-2xl border border-slate-300/35 bg-gradient-to-b from-slate-100/95 to-slate-200/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_8px_16px_rgba(2,6,23,0.06)] transition-all duration-300 ease-in-out;
+  }
+
+  .ui-page-title {
+    @apply text-xl font-semibold tracking-tight text-slate-900;
+  }
+
+  .ui-page-subtitle {
+    @apply mt-1 text-sm text-slate-600;
+  }
+
+  .ui-input {
+    @apply w-full rounded-xl border border-slate-300/55 bg-gradient-to-b from-white/95 to-slate-50/90 px-3 py-2 text-sm text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.76),0_4px_10px_rgba(2,6,23,0.05)] outline-none transition-all duration-300 ease-in-out hover:border-slate-300/80 focus:border-slate-500 focus:ring-2 focus:ring-slate-200;
+  }
+
+  .ui-select {
+    @apply w-full rounded-xl border border-slate-300/55 bg-gradient-to-b from-white/95 to-slate-50/90 px-3 py-2 text-sm text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.76),0_4px_10px_rgba(2,6,23,0.05)] outline-none transition-all duration-300 ease-in-out hover:border-slate-300/80 focus:border-slate-500 focus:ring-2 focus:ring-slate-200;
+  }
+
+  .ui-textarea {
+    @apply w-full rounded-xl border border-slate-300/55 bg-gradient-to-b from-white/95 to-slate-50/90 px-3 py-2 text-sm text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.76),0_4px_10px_rgba(2,6,23,0.05)] outline-none transition-all duration-300 ease-in-out hover:border-slate-300/80 focus:border-slate-500 focus:ring-2 focus:ring-slate-200;
+  }
+
+  .ui-btn-primary {
+    @apply inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-slate-800 to-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_1px_0_rgba(255,255,255,0.16)_inset,0_10px_20px_rgba(2,6,23,0.28)] transition-all duration-300 ease-in-out hover:scale-[1.02] hover:from-slate-700 hover:to-slate-900 hover:shadow-[0_1px_0_rgba(255,255,255,0.2)_inset,0_14px_24px_rgba(2,6,23,0.38)] disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .ui-btn-accent {
+    @apply inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-sky-600 to-blue-800 px-4 py-2 text-sm font-semibold text-white shadow-[0_1px_0_rgba(255,255,255,0.18)_inset,0_10px_20px_rgba(30,64,175,0.28)] transition-all duration-300 ease-in-out hover:scale-[1.02] hover:from-sky-500 hover:to-blue-800 hover:shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_14px_24px_rgba(30,64,175,0.4)] disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .ui-btn-soft {
+    @apply inline-flex items-center justify-center rounded-xl border border-slate-300/55 bg-gradient-to-b from-slate-50/95 to-slate-100/75 px-3 py-2 text-sm font-medium text-slate-700 shadow-[0_1px_0_rgba(255,255,255,0.86)_inset,0_8px_14px_rgba(2,6,23,0.1)] transition-all duration-300 ease-in-out hover:scale-[1.02] hover:border-slate-300/75 hover:shadow-[0_1px_0_rgba(255,255,255,0.9)_inset,0_12px_18px_rgba(2,6,23,0.16)];
+  }
+
+  .ui-table-wrap {
+    @apply overflow-x-auto rounded-2xl border border-slate-300/35 bg-gradient-to-b from-slate-50/95 to-slate-100/80 shadow-[0_1px_0_rgba(255,255,255,0.7)_inset,0_10px_24px_rgba(2,6,23,0.1)] transition-all duration-300 ease-in-out;
+  }
+
+  .ui-table-head {
+    @apply bg-gradient-to-b from-slate-100/90 to-slate-200/60 text-left text-xs uppercase tracking-wider text-slate-500;
+  }
+}
