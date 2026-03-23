@@ -14,26 +14,7 @@ export function canViewBoard(user: SessionUser): boolean {
   if (!user) {
     return false;
   }
-  return (
-    user.role === "super_admin" ||
-    user.role === "department_head" ||
-    user.role === "operator"
-  );
-}
-
-export function canViewTeam(user: SessionUser): boolean {
-  if (!user) {
-    return false;
-  }
-  return (
-    user.role === "super_admin" ||
-    user.role === "department_head" ||
-    user.role === "operator"
-  );
-}
-
-export function canViewSettings(user: SessionUser): boolean {
-  return user?.role === "super_admin";
+  return user.role === "super_admin" || user.role === "department_head";
 }
 
 export function canAssignIssue(user: SessionUser, issue: IssueRecord): boolean {
@@ -43,10 +24,47 @@ export function canAssignIssue(user: SessionUser, issue: IssueRecord): boolean {
   if (user.role === "super_admin") {
     return true;
   }
-  return (
-    (user.role === "department_head" || user.role === "operator") &&
-    user.departmentId === issue.assignedDepartmentId
-  );
+  return user.role === "department_head" && user.departmentId === issue.assignedDepartmentId;
+}
+
+export function canAssignToUser(
+  user: SessionUser,
+  assignee: TeamMember,
+  issue: IssueRecord,
+): boolean {
+  if (!user) {
+    return false;
+  }
+  if (!canAssignIssue(user, issue)) {
+    return false;
+  }
+
+  if (user.role === "super_admin") {
+    return (
+      assignee.role === "department_head" &&
+      assignee.departmentId === issue.assignedDepartmentId
+    );
+  }
+
+  if (user.role === "department_head") {
+    return (
+      assignee.role === "engineer" &&
+      assignee.departmentId === user.departmentId &&
+      assignee.departmentId === issue.assignedDepartmentId
+    );
+  }
+
+  return false;
+}
+
+export function canRerouteIssue(user: SessionUser, issue: IssueRecord): boolean {
+  if (!user) {
+    return false;
+  }
+  if (user.role === "super_admin") {
+    return true;
+  }
+  return user.role === "department_head" && user.departmentId === issue.assignedDepartmentId;
 }
 
 export function canUpdateIssueStatus(
@@ -64,7 +82,7 @@ export function canUpdateIssueStatus(
     return issue.assignedToId === user.id;
   }
 
-  if (user.role === "department_head" || user.role === "operator") {
+  if (user.role === "department_head") {
     return user.departmentId === issue.assignedDepartmentId;
   }
 
@@ -108,10 +126,10 @@ export function canAccessIssue(user: SessionUser, issue: IssueRecord): boolean {
   if (user.role === "engineer") {
     return issue.assignedToId === user.id;
   }
-  return (
-    issue.assignedDepartmentId === user.departmentId ||
-    issue.area === user.area
-  );
+  if (user.role === "department_head") {
+    return issue.assignedDepartmentId === user.departmentId;
+  }
+  return false;
 }
 
 export function getVisibleIssues(
@@ -144,16 +162,8 @@ export function getVisibleUsers(
 }
 
 export function canAccessRoute(pathname: string, role: Role): boolean {
-  if (pathname.startsWith("/settings")) {
-    return role === "super_admin";
-  }
-
-  if (pathname.startsWith("/team") || pathname.startsWith("/board")) {
-    return (
-      role === "super_admin" ||
-      role === "department_head" ||
-      role === "operator"
-    );
+  if (pathname.startsWith("/board")) {
+    return role === "super_admin" || role === "department_head";
   }
 
   return true;

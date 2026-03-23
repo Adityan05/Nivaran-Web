@@ -22,7 +22,7 @@ export default function NotificationsPage() {
       <header className="ui-card p-5">
         <h3 className="ui-page-title">Notifications</h3>
         <p className="ui-page-subtitle">
-          Assignment and status alerts for the signed-in operator.
+          Assignment, reroute, and status alerts for the signed-in account.
         </p>
       </header>
 

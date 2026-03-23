@@ -8,6 +8,7 @@ export default function LoginPage() {
   const router = useRouter();
   const initMockData = useAppStore((s) => s.initMockData);
   const users = useAppStore((s) => s.users);
+  const departments = useAppStore((s) => s.departments);
   const loginAs = useAppStore((s) => s.loginAs);
   const sessionUser = useAppStore((s) => s.sessionUser);
 
@@ -27,6 +28,17 @@ export default function LoginPage() {
   const rolePreview = useMemo(() => {
     return users.find((u) => u.email === email)?.role ?? "unknown";
   }, [users, email]);
+
+  const departmentPreview = useMemo(() => {
+    const selectedUser = users.find((u) => u.email === email);
+    if (!selectedUser || selectedUser.role !== "department_head") {
+      return null;
+    }
+    return (
+      departments.find((d) => d.id === selectedUser.departmentId)?.name ??
+      selectedUser.departmentId
+    );
+  }, [users, departments, email]);
 
   return (
     <div className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_15%_20%,#d0dde8_0%,#f8fafc_38%,#e7edf4_100%)] p-6">
@@ -80,6 +92,11 @@ export default function LoginPage() {
             <span className="font-semibold">
               {rolePreview.replace("_", " ")}
             </span>
+            {departmentPreview ? (
+              <p className="mt-1 text-slate-600">
+                Department: {departmentPreview}
+              </p>
+            ) : null}
           </div>
 
           {error ? <p className="text-sm text-rose-600">{error}</p> : null}

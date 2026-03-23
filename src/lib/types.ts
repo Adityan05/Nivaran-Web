@@ -1,4 +1,4 @@
-export type Role = "super_admin" | "department_head" | "operator" | "engineer" | "auditor";
+export type Role = "super_admin" | "department_head" | "engineer";
 
 export type IssueStatus =
   | "Reported"
@@ -38,7 +38,13 @@ export interface IssueComment {
 export interface IssueEvent {
   id: string;
   issueId: string;
-  type: "created" | "assignment" | "status_change" | "comment" | "sla";
+  type:
+    | "created"
+    | "assignment"
+    | "status_change"
+    | "comment"
+    | "sla"
+    | "reroute";
   title: string;
   note?: string;
   actorId: string;

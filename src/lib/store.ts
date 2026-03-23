@@ -18,7 +18,11 @@ import {
   mockNotifications,
   mockTeamMembers,
 } from "@/lib/mock-data";
-import { getAllowedStatusTransitions } from "@/lib/access";
+import {
+  canAssignToUser,
+  canRerouteIssue,
+  getAllowedStatusTransitions,
+} from "@/lib/access";
 
 type SessionUser = TeamMember | null;
 
@@ -35,6 +39,12 @@ interface AppState {
   loginAs: (email: string) => { ok: boolean; message: string };
   logout: () => void;
   assignIssue: (issueId: string, assigneeId: string, actorId: string) => void;
+  rerouteIssue: (
+    issueId: string,
+    targetDepartmentId: string,
+    actorId: string,
+    note?: string,
+  ) => void;
   updateIssueStatus: (
     issueId: string,
     status: IssueStatus,
@@ -107,7 +117,12 @@ export const useAppStore = create<AppState>()(
         const state = get();
         const assignee = state.users.find((u) => u.id === assigneeId);
         const actor = state.users.find((u) => u.id === actorId);
-        if (!assignee || !actor) {
+        const targetIssue = state.issues.find((issue) => issue.id === issueId);
+        if (!assignee || !actor || !targetIssue) {
+          return;
+        }
+
+        if (!canAssignToUser(actor, assignee, targetIssue)) {
           return;
         }
 
@@ -117,7 +132,10 @@ export const useAppStore = create<AppState>()(
               ? {
                   ...issue,
                   assignedToId: assigneeId,
-                  status: issue.status === "Reported" ? "Acknowledged" : issue.status,
+                  status:
+                    issue.status === "Reported" && actor.role === "department_head"
+                      ? "Acknowledged"
+                      : issue.status,
                 }
               : issue,
           ),
@@ -145,6 +163,73 @@ export const useAppStore = create<AppState>()(
             },
             ...state.notifications,
           ],
+        });
+      },
+
+      rerouteIssue: (issueId, targetDepartmentId, actorId, note) => {
+        const state = get();
+        const actor = state.users.find((u) => u.id === actorId);
+        const targetIssue = state.issues.find((issue) => issue.id === issueId);
+        if (!actor || !targetIssue) {
+          return;
+        }
+
+        if (!canRerouteIssue(actor, targetIssue)) {
+          return;
+        }
+
+        if (targetIssue.assignedDepartmentId === targetDepartmentId) {
+          return;
+        }
+
+        const targetDepartment = state.departments.find(
+          (d) => d.id === targetDepartmentId,
+        );
+        const targetHeads = state.users.filter(
+          (u) => u.role === "department_head" && u.departmentId === targetDepartmentId,
+        );
+
+        const rerouteNotifications = targetHeads.map((head) => ({
+          id: uid("ntf"),
+          userId: head.id,
+          title: "Issue rerouted to your department",
+          body: `${issueId} was rerouted by ${actor.fullName}. Please assign it to a JE.`,
+          isRead: false,
+          issueId,
+          createdAt: nowISO(),
+        }));
+
+        set({
+          issues: state.issues.map((issue) =>
+            issue.id === issueId
+              ? {
+                  ...issue,
+                  assignedDepartmentId: targetDepartmentId,
+                  assignedDepartment: targetDepartment?.name,
+                  assignedToId: undefined,
+                  status:
+                    issue.status === "Resolved" || issue.status === "Rejected"
+                      ? issue.status
+                      : "Reported",
+                  lastStatusUpdateAt: nowISO(),
+                  lastStatusUpdateBy: actor.fullName,
+                }
+              : issue,
+          ),
+          events: [
+            {
+              id: uid("evt"),
+              issueId,
+              type: "reroute",
+              title: `Rerouted to ${targetDepartment?.name ?? targetDepartmentId}`,
+              note,
+              actorId,
+              actorName: actor.fullName,
+              createdAt: nowISO(),
+            },
+            ...state.events,
+          ],
+          notifications: [...rerouteNotifications, ...state.notifications],
         });
       },
 

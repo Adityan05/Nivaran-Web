@@ -6,7 +6,7 @@ The app is currently in mock mode (local persisted data), so your team can start
 
 ## What Is Implemented
 
-- Role-based login simulator (super admin, department head, operator, engineer, auditor)
+- Role-based login simulator (super admin, department head, engineer)
 - Dashboard with KPI cards and charts
 - Issue inbox with filters and search
 - Issue details workspace
@@ -15,9 +15,8 @@ The app is currently in mock mode (local persisted data), so your team can start
   - comments
   - timeline/audit trail
 - Assignment board (kanban-style by status)
-- Team workload page
 - Notifications inbox with read state
-- Settings page for SLA policy (mock)
+- Re-route action for super admins and department heads
 - Local persistence via Zustand middleware
 
 ## Tech Stack
@@ -51,9 +50,8 @@ Use the dropdown on login page. Example accounts:
 
 - anita@nivaran.gov (super admin)
 - ajay@nivaran.gov (department head)
-- rohit@nivaran.gov (operator)
+- ritika@nivaran.gov (department head)
 - maya@nivaran.gov (engineer)
-- sneha@nivaran.gov (auditor)
 
 ## Important Files
 

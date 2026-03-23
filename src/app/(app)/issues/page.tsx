@@ -2,13 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import {
-  ArrowUpRight,
-  MapPin,
-  MessageCircle,
-  ThumbsUp,
-  Users,
-} from "lucide-react";
+import { MapPin } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import {
   formatRelative,
@@ -47,7 +41,7 @@ export default function IssuesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="ui-card border-slate-300/45 bg-gradient-to-b from-slate-50/95 to-slate-100/80 p-5">
+      <div className="ui-card border-slate-300/45 bg-linear-to-b from-slate-50/95 to-slate-100/80 p-5">
         <h3 className="ui-page-title">Issue Inbox</h3>
         <p className="ui-page-subtitle">
           Visual queue of civic reports. Tap any card to open and act.
@@ -94,9 +88,7 @@ export default function IssuesPage() {
           {filtered.map((issue) => {
             const assignee = users.find((u) => u.id === issue.assignedToId);
             const assigneeLabel = assignee
-              ? assignee.id === sessionUser?.id
-                ? "Assigned to you"
-                : assignee.fullName
+              ? `Assigned to ${assignee.fullName}`
               : "Unassigned";
             return (
               <Link
@@ -104,18 +96,15 @@ export default function IssuesPage() {
                 href={`/issues/${issue.id}`}
                 className="group block"
               >
-                <article className="overflow-hidden rounded-[1.4rem] border border-slate-300/35 bg-gradient-to-b from-slate-50/95 to-slate-100/80 shadow-[0_1px_0_rgba(255,255,255,0.82)_inset,0_10px_24px_rgba(2,6,23,0.11)] transition-all duration-300 ease-in-out hover:-translate-y-0.5 hover:border-slate-300/65 hover:shadow-[0_1px_0_rgba(255,255,255,0.88)_inset,0_16px_30px_rgba(2,6,23,0.16)]">
-                  <div className="relative border-b border-slate-200/50">
+                <article className="overflow-hidden rounded-2xl border border-slate-300/45 bg-white/90 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_10px_24px_rgba(2,6,23,0.08)] transition-all duration-300 ease-in-out hover:-translate-y-0.5 hover:border-slate-300/75 hover:shadow-[0_1px_0_rgba(255,255,255,0.88)_inset,0_16px_28px_rgba(2,6,23,0.14)]">
+                  <div className="relative h-32 border-b border-slate-200/70">
                     <img
                       src={issue.imageUrl}
                       alt={issue.title}
-                      className="h-52 w-full object-cover saturate-[0.95]"
+                      className="h-full w-full object-cover"
                     />
-                    <div className="absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-black/45 to-transparent" />
-                    <div className="absolute right-3 top-3 rounded-full border border-white/55 bg-gradient-to-b from-white to-slate-100/90 p-1.5 text-slate-700 opacity-0 shadow-[0_10px_20px_rgba(2,6,23,0.2)] transition-all duration-300 ease-in-out group-hover:opacity-100">
-                      <ArrowUpRight size={14} />
-                    </div>
-                    <div className="absolute bottom-3 left-3 flex flex-wrap gap-2">
+                    <div className="absolute inset-x-0 bottom-0 h-14 bg-linear-to-t from-black/40 to-transparent" />
+                    <div className="absolute bottom-2 left-3 flex flex-wrap gap-2">
                       <span
                         className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(issue.status)}`}
                       >
@@ -130,13 +119,13 @@ export default function IssuesPage() {
                   </div>
 
                   <div className="space-y-3 p-4">
-                    <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
                       <span>{issue.id}</span>
                       <span>{formatRelative(issue.createdAt)}</span>
                     </div>
 
                     <div>
-                      <h4 className="line-clamp-2 text-[1.45rem] leading-tight font-semibold tracking-tight text-slate-900 transition group-hover:text-cyan-800">
+                      <h4 className="line-clamp-2 text-3xl leading-tight font-semibold tracking-tight text-slate-900 transition group-hover:text-slate-800">
                         {issue.title}
                       </h4>
                       <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-slate-600">
@@ -144,8 +133,8 @@ export default function IssuesPage() {
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap gap-2 border-t border-slate-200/60 pt-3">
-                      <span className="rounded-full border border-slate-300/45 bg-gradient-to-b from-slate-100/95 to-slate-200/70 px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
+                    <div className="flex flex-wrap gap-2 border-t border-slate-200/70 pt-3">
+                      <span className="rounded-full border border-slate-300/55 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
                         {issue.category}
                       </span>
                       <span
@@ -155,31 +144,27 @@ export default function IssuesPage() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-300/35 bg-gradient-to-b from-slate-50/95 to-slate-100/75 p-3 text-xs text-slate-700 shadow-[0_1px_0_rgba(255,255,255,0.82)_inset,0_8px_16px_rgba(2,6,23,0.08)]">
+                    <div className="rounded-xl border border-slate-300/40 bg-slate-50/80 p-3 text-xs text-slate-700">
                       <p className="inline-flex items-center gap-1.5">
                         <MapPin size={13} />
                         <span className="truncate">
                           {issue.locationAddress}
                         </span>
                       </p>
-                      <p className="inline-flex items-center gap-1.5">
-                        <Users size={13} />
-                        Affected {issue.affectedUsersCount}
-                      </p>
-                      <p className="inline-flex items-center gap-1.5">
-                        <ThumbsUp size={13} />
-                        {issue.upvotes ?? 0} upvotes
-                      </p>
-                      <p className="inline-flex items-center gap-1.5">
-                        <MessageCircle size={13} />
-                        {issue.commentsCount ?? 0} updates
-                      </p>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 border-t border-slate-200/60 pt-2 text-xs text-slate-500">
-                      <span>{assigneeLabel}</span>
-                      <span className="rounded-full border border-slate-300/45 bg-gradient-to-b from-slate-100/95 to-slate-200/70 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                        Tap to open
+                    <div className="flex items-center justify-between gap-2 border-t border-slate-200/70 pt-2 text-xs">
+                      {assignee ? (
+                        <span className="font-semibold text-slate-600">
+                          {assigneeLabel}
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-rose-300/45 bg-rose-100 px-2.5 py-1 font-semibold text-rose-700">
+                          Unassigned
+                        </span>
+                      )}
+                      <span className="font-semibold text-slate-500 transition group-hover:text-slate-800">
+                        Open case
                       </span>
                     </div>
                   </div>

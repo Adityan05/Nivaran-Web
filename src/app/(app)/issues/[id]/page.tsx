@@ -12,6 +12,8 @@ import {
 import {
   canAccessIssue,
   canAssignIssue,
+  canAssignToUser,
+  canRerouteIssue,
   getAllowedStatusTransitions,
 } from "@/lib/access";
 import { IssueStatus } from "@/lib/types";
@@ -23,11 +25,15 @@ export default function IssueDetailsPage() {
   const sessionUser = useAppStore((s) => s.sessionUser);
   const issues = useAppStore((s) => s.issues);
   const users = useAppStore((s) => s.users);
+  const departments = useAppStore((s) => s.departments);
   const events = useAppStore((s) => s.events);
   const assignIssue = useAppStore((s) => s.assignIssue);
+  const rerouteIssue = useAppStore((s) => s.rerouteIssue);
   const updateIssueStatus = useAppStore((s) => s.updateIssueStatus);
 
   const [selectedAssignee, setSelectedAssignee] = useState("");
+  const [targetDepartmentId, setTargetDepartmentId] = useState("");
+  const [rerouteNote, setRerouteNote] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<IssueStatus | null>(
     null,
   );
@@ -48,6 +54,7 @@ export default function IssueDetailsPage() {
   }
 
   const canAssign = canAssignIssue(sessionUser, issue);
+  const canReroute = canRerouteIssue(sessionUser, issue);
   const allowedStatuses = getAllowedStatusTransitions(sessionUser, issue);
   const canUpdateStatus = allowedStatuses.length > 0;
 
@@ -62,8 +69,9 @@ export default function IssueDetailsPage() {
     }
   }, [allowedStatuses, selectedStatus]);
 
-  const assignees = users.filter(
-    (u) => u.departmentId === issue.assignedDepartmentId,
+  const assignees = users.filter((u) => canAssignToUser(sessionUser, u, issue));
+  const rerouteOptions = departments.filter(
+    (d) => d.id !== issue.assignedDepartmentId,
   );
 
   return (
@@ -193,6 +201,55 @@ export default function IssueDetailsPage() {
             </p>
           )}
         </article>
+
+        {canReroute ? (
+          <article className="ui-card p-5">
+            <h3 className="text-lg font-semibold tracking-tight">Re-route</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Transfer this issue to another department for reassignment.
+            </p>
+
+            <select
+              className="ui-select mt-3"
+              value={targetDepartmentId}
+              onChange={(e) => setTargetDepartmentId(e.target.value)}
+            >
+              <option value="">Select target department</option>
+              {rerouteOptions.map((department) => (
+                <option value={department.id} key={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+
+            <textarea
+              value={rerouteNote}
+              onChange={(e) => setRerouteNote(e.target.value)}
+              rows={3}
+              placeholder="Reason for reroute (recommended)"
+              className="ui-textarea mt-2"
+            />
+
+            <button
+              type="button"
+              className="ui-btn-soft mt-3 w-full"
+              onClick={() => {
+                if (!sessionUser || !targetDepartmentId) return;
+                rerouteIssue(
+                  issue.id,
+                  targetDepartmentId,
+                  sessionUser.id,
+                  rerouteNote.trim(),
+                );
+                setTargetDepartmentId("");
+                setRerouteNote("");
+              }}
+              disabled={!targetDepartmentId}
+            >
+              Confirm Re-route
+            </button>
+          </article>
+        ) : null}
 
         <article className="ui-card p-5">
           <h3 className="text-lg font-semibold tracking-tight">

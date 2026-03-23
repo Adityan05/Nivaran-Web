@@ -3,19 +3,17 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Bell,
   ClipboardList,
   LayoutDashboard,
   LogOut,
   MapPinned,
-  Settings,
+  Bell,
   ShieldCheck,
-  Users,
 } from "lucide-react";
 import clsx from "clsx";
 import { useMemo } from "react";
 import { useAppStore } from "@/lib/store";
-import { canViewBoard, canViewSettings, canViewTeam } from "@/lib/access";
+import { canViewBoard } from "@/lib/access";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -31,25 +29,14 @@ const navItems = [
     icon: ShieldCheck,
     visibleFor: canViewBoard,
   },
-  {
-    href: "/team",
-    label: "Team Workload",
-    icon: Users,
-    visibleFor: canViewTeam,
-  },
   { href: "/notifications", label: "Notifications", icon: Bell },
-  {
-    href: "/settings",
-    label: "Settings",
-    icon: Settings,
-    visibleFor: canViewSettings,
-  },
 ];
 
 export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const sessionUser = useAppStore((s) => s.sessionUser);
+  const departments = useAppStore((s) => s.departments);
   const notifications = useAppStore((s) => s.notifications);
   const logout = useAppStore((s) => s.logout);
 
@@ -68,6 +55,16 @@ export default function AppShell({ children }: AppShellProps) {
     [sessionUser],
   );
 
+  const departmentName = useMemo(() => {
+    if (!sessionUser || sessionUser.role !== "department_head") {
+      return null;
+    }
+    return (
+      departments.find((d) => d.id === sessionUser.departmentId)?.name ??
+      sessionUser.departmentId
+    );
+  }, [departments, sessionUser]);
+
   return (
     <div className="h-screen overflow-hidden bg-[radial-gradient(circle_at_18%_8%,#d8eceb_0%,#e8eef2_30%,#e6edf1_100%)] text-slate-800">
       <div className="mx-auto flex h-full max-w-screen-2xl">
@@ -80,17 +77,11 @@ export default function AppShell({ children }: AppShellProps) {
                 className="h-12 w-12 rounded-xl border border-slate-300/45 bg-slate-100/70 object-cover p-1"
               />
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                <h1 className="text-2xl font-semibold tracking-tight">
                   Nivaran
-                </p>
-                <h1 className="mt-1 text-xl font-semibold tracking-tight">
-                  Admin Suite
                 </h1>
               </div>
             </div>
-            <p className="mt-3 text-sm text-slate-600">
-              Civic issue operations and monitoring workspace
-            </p>
           </div>
 
           <nav className="space-y-1.5">
@@ -111,6 +102,11 @@ export default function AppShell({ children }: AppShellProps) {
                 >
                   <Icon size={16} />
                   <span>{item.label}</span>
+                  {item.href === "/notifications" && unreadCount > 0 ? (
+                    <span className="ml-auto rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      {unreadCount}
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}
@@ -126,49 +122,25 @@ export default function AppShell({ children }: AppShellProps) {
             <p className="mt-0.5 text-xs text-slate-500">
               {sessionUser?.role.replace("_", " ")}
             </p>
+            {departmentName ? (
+              <p className="mt-0.5 text-xs text-slate-500">{departmentName}</p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                logout();
+                router.push("/login");
+              }}
+              className="ui-btn-soft mt-3 w-full border-slate-300/90 bg-white"
+            >
+              <LogOut size={16} />
+              Logout
+            </button>
           </div>
         </aside>
 
         <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="sticky top-0 z-20 border-b border-slate-200/50 bg-gradient-to-b from-slate-50/95 to-slate-100/70 shadow-[0_1px_0_rgba(255,255,255,0.65)_inset,0_6px_18px_rgba(15,23,42,0.06)] backdrop-blur-md">
-            <div className="flex items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                  Operations
-                </p>
-                <h2 className="text-lg font-semibold tracking-tight">
-                  City Issue Management
-                </h2>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Link
-                  href="/notifications"
-                  className="relative rounded-xl border border-slate-300/60 bg-gradient-to-b from-white to-slate-50/90 p-2.5 shadow-[0_1px_0_rgba(255,255,255,0.9)_inset,0_6px_14px_rgba(15,23,42,0.08)] transition-all duration-300 ease-in-out hover:scale-[1.02] hover:border-slate-300/90 hover:shadow-[0_1px_0_rgba(255,255,255,0.95)_inset,0_10px_20px_rgba(15,23,42,0.12)]"
-                >
-                  <Bell size={18} />
-                  {unreadCount > 0 ? (
-                    <span className="absolute -right-2 -top-2 rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                      {unreadCount}
-                    </span>
-                  ) : null}
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => {
-                    logout();
-                    router.push("/login");
-                  }}
-                  className="ui-btn-soft border-slate-300/90 bg-white"
-                >
-                  <LogOut size={16} />
-                  Logout
-                </button>
-              </div>
-            </div>
-          </header>
-
-          <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
+          <main className="h-full overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
             {children}
           </main>
         </div>
