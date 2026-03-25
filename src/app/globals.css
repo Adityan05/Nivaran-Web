@@ -18,6 +18,42 @@ body {
   font-family: var(--font-geist-sans), sans-serif;
 }
 
+@keyframes unassigned-border-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+.issue-card-unassigned::before {
+  content: "";
+  position: absolute;
+  inset: -38%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 210deg,
+    rgba(239, 68, 68, 0.98) 270deg,
+    rgba(244, 63, 94, 0.9) 315deg,
+    transparent 360deg
+  );
+  animation: unassigned-border-spin 2.3s linear infinite;
+  z-index: 0;
+}
+
+.issue-card-unassigned::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 0.95rem;
+  background: inherit;
+  z-index: 0;
+}
+
+.issue-card-unassigned > * {
+  position: relative;
+  z-index: 1;
+}
+
 * {
   box-sizing: border-box;
 }

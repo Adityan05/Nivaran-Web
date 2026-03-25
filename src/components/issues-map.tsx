@@ -90,16 +90,20 @@ export default function IssuesMap({ issues }: IssuesMapProps) {
             <button
               type="button"
               onClick={() => router.push(`/issues/${issue.id}`)}
-              title={`${issue.id}: ${issue.title}`}
+              title={issue.title}
               className={`group relative -translate-x-1/2 -translate-y-1/2 rounded-full ring-4 ${statusRing(issue.status)} transition hover:scale-110 focus:scale-110 focus:outline-none`}
             >
               <img
                 src={issue.imageUrl}
                 alt={issue.title}
                 className="h-11 w-11 rounded-full border-2 border-white object-cover shadow-lg"
+                onError={(event) => {
+                  event.currentTarget.onerror = null;
+                  event.currentTarget.src = "/issue-placeholder.svg";
+                }}
               />
               <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-slate-300/55 bg-gradient-to-b from-slate-50/95 to-slate-100/85 px-2 py-1 text-[11px] font-medium text-slate-700 shadow-[0_8px_14px_rgba(2,6,23,0.14)] group-hover:block">
-                {issue.id}
+                {issue.title}
               </span>
             </button>
           </OverlayView>

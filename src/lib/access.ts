@@ -21,6 +21,9 @@ export function canAssignIssue(user: SessionUser, issue: IssueRecord): boolean {
   if (!user) {
     return false;
   }
+  if (issue.status === "Resolved") {
+    return false;
+  }
   if (user.role === "super_admin") {
     return true;
   }
@@ -59,6 +62,9 @@ export function canAssignToUser(
 
 export function canRerouteIssue(user: SessionUser, issue: IssueRecord): boolean {
   if (!user) {
+    return false;
+  }
+  if (issue.status === "Resolved") {
     return false;
   }
   if (user.role === "super_admin") {

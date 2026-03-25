@@ -3,7 +3,19 @@
 import { create } from "zustand";
 import { persist, createJSONStorage, StateStorage } from "zustand/middleware";
 import {
+  addDoc,
+  collection,
+  collectionGroup,
+  doc,
+  getDocs,
+  increment,
+  serverTimestamp,
+  setDoc,
+  writeBatch,
+} from "firebase/firestore";
+import {
   AppNotification,
+  Department,
   IssueComment,
   IssueEvent,
   IssueRecord,
@@ -11,18 +23,14 @@ import {
   TeamMember,
 } from "@/lib/types";
 import {
-  mockComments,
   mockDepartments,
-  mockEvents,
-  mockIssues,
-  mockNotifications,
-  mockTeamMembers,
 } from "@/lib/mock-data";
 import {
   canAssignToUser,
   canRerouteIssue,
   getAllowedStatusTransitions,
 } from "@/lib/access";
+import { db } from "@/lib/firebase";
 
 type SessionUser = TeamMember | null;
 
@@ -34,9 +42,9 @@ interface AppState {
   events: IssueEvent[];
   comments: IssueComment[];
   notifications: AppNotification[];
-  departments: typeof mockDepartments;
-  initMockData: () => void;
-  loginAs: (email: string) => { ok: boolean; message: string };
+  departments: Department[];
+  initMockData: () => Promise<void>;
+  loginAs: (email: string) => Promise<{ ok: boolean; message: string }>;
   logout: () => void;
   assignIssue: (issueId: string, assigneeId: string, actorId: string) => void;
   rerouteIssue: (
@@ -63,6 +71,61 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
+function asISO(input: unknown): string {
+  if (!input) {
+    return new Date().toISOString();
+  }
+  if (typeof input === "string") {
+    const d = new Date(input);
+    return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  }
+  if (typeof input === "object") {
+    const value = input as {
+      toDate?: () => Date;
+      seconds?: number;
+      nanoseconds?: number;
+      _seconds?: number;
+      _nanoseconds?: number;
+    };
+    if (typeof value.toDate === "function") {
+      return value.toDate().toISOString();
+    }
+    if (typeof value.seconds === "number") {
+      return new Date(value.seconds * 1000).toISOString();
+    }
+    if (typeof value._seconds === "number") {
+      return new Date(value._seconds * 1000).toISOString();
+    }
+  }
+  return new Date().toISOString();
+}
+
+function normalizeRole(role: unknown): TeamMember["role"] | null {
+  const value = String(role ?? "").trim().toLowerCase();
+  if (value === "super_admin" || value === "superadmin") {
+    return "super_admin";
+  }
+  if (value === "department_head" || value === "department head") {
+    return "department_head";
+  }
+  if (value === "engineer" || value === "supervisor") {
+    return "engineer";
+  }
+  return null;
+}
+
+function normalizeStatus(status: unknown): IssueStatus {
+  const value = String(status ?? "").trim().toLowerCase();
+  if (value === "reported") return "Reported";
+  if (value === "acknowledged") return "Acknowledged";
+  if (value === "in progress") return "In Progress";
+  if (value === "resolved") return "Resolved";
+  if (value === "rejected") return "Rejected";
+  if (value === "assigned to department") return "Reported";
+  if (value === "assigned to supervisor") return "Acknowledged";
+  return "Reported";
+}
+
 function safeStorage(): StateStorage {
   if (typeof window === "undefined") {
     return {
@@ -84,29 +147,189 @@ export const useAppStore = create<AppState>()(
       events: [],
       comments: [],
       notifications: [],
-      departments: mockDepartments,
+      departments: [],
 
-      initMockData: () => {
-        if (get().initialized) {
+      initMockData: async () => {
+        if (typeof window === "undefined") {
           return;
         }
-        set({
-          initialized: true,
-          users: mockTeamMembers,
-          issues: mockIssues,
-          events: mockEvents,
-          comments: mockComments,
-          notifications: mockNotifications,
-          departments: mockDepartments,
-          sessionUser: mockTeamMembers[0],
-        });
+
+        try {
+          const [opsUsersSnap, opsDepartmentsSnap, opsIssuesSnap, eventsSnap, commentsSnap, opsNotificationsSnap] =
+            await Promise.all([
+              getDocs(collection(db, "ops_users")),
+              getDocs(collection(db, "ops_departments")),
+              getDocs(collection(db, "ops_issues")),
+              getDocs(collectionGroup(db, "events")),
+              getDocs(collectionGroup(db, "comments")),
+              getDocs(collection(db, "ops_notifications")),
+            ]);
+
+          const users: TeamMember[] = opsUsersSnap.docs
+            .map((d) => {
+              const data = d.data();
+              const role = normalizeRole(data.role);
+              if (!role) {
+                return null;
+              }
+              return {
+                id: d.id,
+                fullName: String(data.fullName ?? "Unknown"),
+                email: String(data.email ?? ""),
+                role,
+                departmentId: String(data.departmentId ?? ""),
+                area: String(data.areaId ?? data.area ?? ""),
+                workload: Number(data.workload ?? 0),
+                active: data.active !== false,
+              };
+            })
+            .filter((user): user is TeamMember => user !== null);
+
+          const departments: Department[] = opsDepartmentsSnap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              code: String(data.code ?? d.id.replace(/^dept_/, "").toUpperCase()),
+              name: String(data.name ?? d.id),
+            };
+          });
+
+          const issues: IssueRecord[] = opsIssuesSnap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              title: String(data.title ?? "Civic issue report"),
+              description: String(data.description ?? ""),
+              category: String(data.category ?? "General"),
+              urgency: (data.urgency as IssueRecord["urgency"]) ?? "Medium",
+              status: normalizeStatus(data.status),
+              area: String(data.area ?? ""),
+              assignedDepartmentId: String(data.assignedDepartmentId ?? ""),
+              assignedToId:
+                typeof data.assignedToId === "string" && data.assignedToId
+                  ? data.assignedToId
+                  : undefined,
+              reporterName: String(data.reporterName ?? "Citizen"),
+              createdAt: asISO(data.createdAt),
+              dueAt: asISO(data.dueAt),
+              affectedUsersCount: Number(data.affectedUsersCount ?? 0),
+              tags: Array.isArray(data.tags) ? data.tags : [],
+              imageUrl: String(data.imageUrl ?? ""),
+              locationAddress: String(data.locationAddress ?? ""),
+              lat: Number(data.lat ?? 0),
+              lng: Number(data.lng ?? 0),
+              userId: data.userId,
+              username: data.username,
+              upvotes: Number(data.upvotes ?? 0),
+              downvotes: Number(data.downvotes ?? 0),
+              commentsCount: Number(data.commentsCount ?? 0),
+              isUnresolved:
+                typeof data.isUnresolved === "boolean"
+                  ? data.isUnresolved
+                  : !["Resolved", "Rejected"].includes(normalizeStatus(data.status)),
+              lastStatusUpdateAt: data.lastStatusUpdateAt
+                ? asISO(data.lastStatusUpdateAt)
+                : undefined,
+              lastStatusUpdateBy: data.lastStatusUpdateBy,
+              assignedDepartment: data.assignedDepartment,
+              affectedUserIds: Array.isArray(data.affectedUserIds)
+                ? data.affectedUserIds
+                : [],
+              voters:
+                data.voters && typeof data.voters === "object" ? data.voters : {},
+              duplicateOfIssueId: data.duplicateOfIssueId,
+            };
+          });
+
+          const events: IssueEvent[] = eventsSnap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              issueId:
+                typeof data.issueId === "string"
+                  ? data.issueId
+                  : d.ref.parent.parent?.id ?? "",
+              type: (data.type as IssueEvent["type"]) ?? "created",
+              title: String(data.title ?? "Event"),
+              note: data.note,
+              actorId: String(data.actorId ?? "system"),
+              actorName: String(data.actorName ?? "System"),
+              createdAt: asISO(data.createdAt),
+            };
+          });
+
+          const comments: IssueComment[] = commentsSnap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              issueId:
+                typeof data.issueId === "string"
+                  ? data.issueId
+                  : d.ref.parent.parent?.id ?? "",
+              actorId: String(data.actorId ?? "system"),
+              actorName: String(data.actorName ?? "System"),
+              text: String(data.text ?? ""),
+              createdAt: asISO(data.createdAt),
+            };
+          });
+
+          const notifications: AppNotification[] = opsNotificationsSnap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              userId: String(data.userId ?? ""),
+              title: String(data.title ?? "Notification"),
+              body: String(data.body ?? ""),
+              isRead: Boolean(data.isRead),
+              createdAt: asISO(data.createdAt),
+              issueId: data.issueId,
+            };
+          });
+
+          const currentSessionId = get().sessionUser?.id;
+          const nextSession = currentSessionId
+            ? users.find((u) => u.id === currentSessionId) ?? null
+            : null;
+
+          set({
+            initialized: true,
+            users,
+            issues,
+            events,
+            comments,
+            notifications,
+            departments,
+            sessionUser: nextSession,
+          });
+        } catch (error) {
+          console.error("Failed to load Firestore ops data.", error);
+          set({
+            initialized: true,
+            users: [],
+            issues: [],
+            events: [],
+            comments: [],
+            notifications: [],
+            departments: [],
+            sessionUser: null,
+          });
+        }
       },
 
-      loginAs: (email) => {
-        const user = get().users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-        if (!user) {
-          return { ok: false, message: "User not found in mock directory." };
+      loginAs: async (email) => {
+        const normalized = email.trim().toLowerCase();
+        if (!normalized) {
+          return { ok: false, message: "Email is required." };
         }
+
+        const user = get().users.find((u) => u.email.toLowerCase() === normalized);
+        if (!user) {
+          return { ok: false, message: "No matching ops user profile found for this email." };
+        }
+        if (!user.active) {
+          return { ok: false, message: "This account is deactivated." };
+        }
+
         set({ sessionUser: user });
         return { ok: true, message: "Login successful." };
       },
@@ -126,16 +349,20 @@ export const useAppStore = create<AppState>()(
           return;
         }
 
+        const nextStatus: IssueStatus =
+          targetIssue.status === "Reported" && actor.role === "department_head"
+            ? "Acknowledged"
+            : targetIssue.status;
+
         set({
           issues: state.issues.map((issue) =>
             issue.id === issueId
               ? {
                   ...issue,
                   assignedToId: assigneeId,
-                  status:
-                    issue.status === "Reported" && actor.role === "department_head"
-                      ? "Acknowledged"
-                      : issue.status,
+                  status: nextStatus,
+                  lastStatusUpdateAt: nowISO(),
+                  lastStatusUpdateBy: actor.fullName,
                 }
               : issue,
           ),
@@ -163,6 +390,51 @@ export const useAppStore = create<AppState>()(
             },
             ...state.notifications,
           ],
+        });
+
+        void (async () => {
+          const issueRef = doc(db, "ops_issues", issueId);
+          await setDoc(
+            issueRef,
+            {
+              assignedToId: assigneeId,
+              assignedToRole: assignee.role,
+              status: nextStatus,
+              lastStatusUpdateAt: serverTimestamp(),
+              lastStatusUpdateBy: actor.fullName,
+            },
+            { merge: true },
+          );
+
+          await setDoc(
+            doc(collection(issueRef, "events")),
+            {
+              issueId,
+              type: "assignment",
+              title: `Assigned to ${assignee.fullName}`,
+              note: null,
+              actorId,
+              actorName: actor.fullName,
+              createdAt: serverTimestamp(),
+            },
+            { merge: true },
+          );
+
+          await setDoc(
+            doc(db, "ops_notifications", uid("ntf")),
+            {
+              userId: assigneeId,
+              title: "New assignment",
+              body: `${issueId} has been assigned to you.`,
+              type: "assignment",
+              issueId,
+              isRead: false,
+              createdAt: serverTimestamp(),
+            },
+            { merge: true },
+          );
+        })().catch((error) => {
+          console.error("Failed to persist assignment update", error);
         });
       },
 
@@ -231,6 +503,60 @@ export const useAppStore = create<AppState>()(
           ],
           notifications: [...rerouteNotifications, ...state.notifications],
         });
+
+        void (async () => {
+          const issueRef = doc(db, "ops_issues", issueId);
+          await setDoc(
+            issueRef,
+            {
+              assignedDepartmentId: targetDepartmentId,
+              assignedDepartment: targetDepartment?.name ?? null,
+              assignedToId: null,
+              assignedToRole: null,
+              status:
+                targetIssue.status === "Resolved" || targetIssue.status === "Rejected"
+                  ? targetIssue.status
+                  : "Reported",
+              reroutedAt: serverTimestamp(),
+              reroutedBy: actor.fullName,
+              lastStatusUpdateAt: serverTimestamp(),
+              lastStatusUpdateBy: actor.fullName,
+            },
+            { merge: true },
+          );
+
+          await setDoc(
+            doc(collection(issueRef, "events")),
+            {
+              issueId,
+              type: "reroute",
+              title: `Rerouted to ${targetDepartment?.name ?? targetDepartmentId}`,
+              note: note ?? null,
+              actorId,
+              actorName: actor.fullName,
+              createdAt: serverTimestamp(),
+            },
+            { merge: true },
+          );
+
+          if (targetHeads.length) {
+            const batch = writeBatch(db);
+            for (const head of targetHeads) {
+              batch.set(doc(db, "ops_notifications", uid("ntf")), {
+                userId: head.id,
+                title: "Issue rerouted to your department",
+                body: `${issueId} was rerouted by ${actor.fullName}. Please assign it to a JE.`,
+                type: "reroute",
+                issueId,
+                isRead: false,
+                createdAt: serverTimestamp(),
+              });
+            }
+            await batch.commit();
+          }
+        })().catch((error) => {
+          console.error("Failed to persist reroute update", error);
+        });
       },
 
       updateIssueStatus: (issueId, status, actorId, note) => {
@@ -265,7 +591,14 @@ export const useAppStore = create<AppState>()(
 
         set({
           issues: state.issues.map((issue) =>
-            issue.id === issueId ? { ...issue, status } : issue,
+            issue.id === issueId
+              ? {
+                  ...issue,
+                  status,
+                  lastStatusUpdateAt: nowISO(),
+                  lastStatusUpdateBy: actor.fullName,
+                }
+              : issue,
           ),
           events: [
             {
@@ -281,6 +614,47 @@ export const useAppStore = create<AppState>()(
             ...state.events,
           ],
           notifications: nextNotifications,
+        });
+
+        void (async () => {
+          const issueRef = doc(db, "ops_issues", issueId);
+          await setDoc(
+            issueRef,
+            {
+              status,
+              lastStatusUpdateAt: serverTimestamp(),
+              lastStatusUpdateBy: actor.fullName,
+            },
+            { merge: true },
+          );
+
+          await setDoc(
+            doc(collection(issueRef, "events")),
+            {
+              issueId,
+              type: "status_change",
+              title: `Status changed to ${status}`,
+              note: note || null,
+              actorId,
+              actorName: actor.fullName,
+              createdAt: serverTimestamp(),
+            },
+            { merge: true },
+          );
+
+          if (targetIssue.assignedToId) {
+            await addDoc(collection(db, "ops_notifications"), {
+              userId: targetIssue.assignedToId,
+              title: `Status changed: ${status}`,
+              body: `${issueId} moved to ${status}.`,
+              type: "status_change",
+              issueId,
+              isRead: false,
+              createdAt: serverTimestamp(),
+            });
+          }
+        })().catch((error) => {
+          console.error("Failed to persist status update", error);
         });
       },
 
@@ -319,6 +693,37 @@ export const useAppStore = create<AppState>()(
             ...state.events,
           ],
         });
+
+        void (async () => {
+          const issueRef = doc(db, "ops_issues", issueId);
+          await addDoc(collection(issueRef, "comments"), {
+            issueId,
+            actorId,
+            actorName: actor.fullName,
+            text: cleanText,
+            createdAt: serverTimestamp(),
+          });
+
+          await addDoc(collection(issueRef, "events"), {
+            issueId,
+            type: "comment",
+            title: "Comment added",
+            note: cleanText,
+            actorId,
+            actorName: actor.fullName,
+            createdAt: serverTimestamp(),
+          });
+
+          await setDoc(
+            issueRef,
+            {
+              commentsCount: increment(1),
+            },
+            { merge: true },
+          );
+        })().catch((error) => {
+          console.error("Failed to persist comment", error);
+        });
       },
 
       markNotificationRead: (notificationId) => {
@@ -327,10 +732,18 @@ export const useAppStore = create<AppState>()(
             n.id === notificationId ? { ...n, isRead: true } : n,
           ),
         }));
+
+        void setDoc(
+          doc(db, "ops_notifications", notificationId),
+          { isRead: true },
+          { merge: true },
+        ).catch((error) => {
+          console.error("Failed to mark notification as read", error);
+        });
       },
     }),
     {
-      name: "nivaran-web-mock-store",
+      name: "nivaran-web-store",
       storage: createJSONStorage(safeStorage),
       partialize: (state) => ({
         initialized: state.initialized,

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-label="Issue image placeholder">
+  <rect width="1200" height="700" fill="#e2e8f0"/>
+  <rect x="460" y="235" width="280" height="190" rx="18" fill="#cbd5e1"/>
+  <circle cx="530" cy="300" r="18" fill="#94a3b8"/>
+  <path d="M500 380l65-62 50 40 40-32 45 54z" fill="#94a3b8"/>
+  <text x="600" y="495" text-anchor="middle" fill="#64748b" font-size="34" font-family="Segoe UI, Arial, sans-serif">
+    No image available
+  </text>
+</svg>

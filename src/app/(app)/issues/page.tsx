@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { MapPin } from "lucide-react";
+import { CheckCircle2, Clock3, MapPin, ThumbsUp } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import {
   formatRelative,
@@ -90,26 +90,46 @@ export default function IssuesPage() {
             const assigneeLabel = assignee
               ? `Assigned to ${assignee.fullName}`
               : "Unassigned";
+            const isUnassigned = !issue.assignedToId;
+            const cardStateClass =
+              issue.status === "Resolved"
+                ? "border-slate-300/45 ring-1 ring-emerald-300/65 bg-linear-to-b from-emerald-50/55 to-white shadow-[0_1px_0_rgba(255,255,255,0.75)_inset,0_8px_20px_rgba(2,6,23,0.065)] hover:shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_12px_22px_rgba(2,6,23,0.08)]"
+                : issue.status === "Rejected"
+                  ? "border-rose-500/80 opacity-60"
+                  : "border-slate-300/45 bg-white/90 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_10px_24px_rgba(2,6,23,0.08)] hover:shadow-[0_1px_0_rgba(255,255,255,0.88)_inset,0_16px_28px_rgba(2,6,23,0.14)]";
             return (
               <Link
                 key={issue.id}
                 href={`/issues/${issue.id}`}
                 className="group block"
               >
-                <article className="overflow-hidden rounded-2xl border border-slate-300/45 bg-white/90 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_10px_24px_rgba(2,6,23,0.08)] transition-all duration-300 ease-in-out hover:-translate-y-0.5 hover:border-slate-300/75 hover:shadow-[0_1px_0_rgba(255,255,255,0.88)_inset,0_16px_28px_rgba(2,6,23,0.14)]">
-                  <div className="relative h-32 border-b border-slate-200/70">
+                <article
+                  className={`relative h-[440px] overflow-hidden rounded-2xl border transition-all duration-300 ease-in-out hover:-translate-y-0.5 hover:opacity-100 ${cardStateClass} ${isUnassigned ? "issue-card-unassigned" : ""}`}
+                >
+                  <div className="relative h-44 border-b border-slate-200/70">
                     <img
                       src={issue.imageUrl}
                       alt={issue.title}
                       className="h-full w-full object-cover"
+                      onError={(event) => {
+                        event.currentTarget.onerror = null;
+                        event.currentTarget.src = "/issue-placeholder.svg";
+                      }}
                     />
                     <div className="absolute inset-x-0 bottom-0 h-14 bg-linear-to-t from-black/40 to-transparent" />
                     <div className="absolute bottom-2 left-3 flex flex-wrap gap-2">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(issue.status)}`}
-                      >
-                        {issue.status}
-                      </span>
+                      {issue.status === "Resolved" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                          <CheckCircle2 size={12} />
+                          <span>Resolved</span>
+                        </span>
+                      ) : (
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(issue.status)}`}
+                        >
+                          {issue.status}
+                        </span>
+                      )}
                       <span
                         className={`rounded-full px-2.5 py-1 text-xs font-semibold ${urgencyBadgeClass(issue.urgency)}`}
                       >
@@ -118,19 +138,11 @@ export default function IssuesPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-3 p-4">
-                    <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      <span>{issue.id}</span>
-                      <span>{formatRelative(issue.createdAt)}</span>
-                    </div>
-
+                  <div className="flex h-[264px] flex-col space-y-3 p-4">
                     <div>
-                      <h4 className="line-clamp-2 text-3xl leading-tight font-semibold tracking-tight text-slate-900 transition group-hover:text-slate-800">
+                      <h4 className="line-clamp-2 text-[1.2rem] leading-tight font-semibold tracking-tight text-slate-900 transition group-hover:text-slate-800">
                         {issue.title}
                       </h4>
-                      <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-slate-600">
-                        {issue.description}
-                      </p>
                     </div>
 
                     <div className="flex flex-wrap gap-2 border-t border-slate-200/70 pt-3">
@@ -145,15 +157,21 @@ export default function IssuesPage() {
                     </div>
 
                     <div className="rounded-xl border border-slate-300/40 bg-slate-50/80 p-3 text-xs text-slate-700">
-                      <p className="inline-flex items-center gap-1.5">
-                        <MapPin size={13} />
-                        <span className="truncate">
-                          {issue.locationAddress}
-                        </span>
-                      </p>
+                      <div className="flex flex-col gap-2">
+                        <p className="flex items-center gap-1.5">
+                          <MapPin size={13} />
+                          <span className="block max-w-[15rem] truncate">
+                            {issue.locationAddress}
+                          </span>
+                        </p>
+                        <p className="flex items-center gap-1.5 font-semibold text-slate-500">
+                          <Clock3 size={12} />
+                          <span>{formatRelative(issue.createdAt)}</span>
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 border-t border-slate-200/70 pt-2 text-xs">
+                    <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-200/70 pt-2 text-xs">
                       {assignee ? (
                         <span className="font-semibold text-slate-600">
                           {assigneeLabel}
@@ -163,8 +181,9 @@ export default function IssuesPage() {
                           Unassigned
                         </span>
                       )}
-                      <span className="font-semibold text-slate-500 transition group-hover:text-slate-800">
-                        Open case
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-slate-500">
+                        <ThumbsUp size={13} />
+                        <span>{issue.upvotes ?? 0}</span>
                       </span>
                     </div>
                   </div>

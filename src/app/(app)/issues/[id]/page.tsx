@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { notFound, useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "@/lib/store";
@@ -49,8 +50,25 @@ export default function IssueDetailsPage() {
     [events, issueId],
   );
 
-  if (!issue || !canAccessIssue(sessionUser, issue)) {
+  if (!issue) {
     notFound();
+  }
+
+  if (!canAccessIssue(sessionUser, issue)) {
+    return (
+      <div className="ui-card p-6">
+        <h2 className="text-lg font-semibold tracking-tight text-slate-900">
+          Issue access updated
+        </h2>
+        <p className="mt-2 text-sm text-slate-600">
+          This issue was rerouted or reassigned and is no longer in your current
+          department scope.
+        </p>
+        <Link href="/issues" className="ui-btn-soft mt-4">
+          Back to issues
+        </Link>
+      </div>
+    );
   }
 
   const canAssign = canAssignIssue(sessionUser, issue);

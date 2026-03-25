@@ -17,8 +17,17 @@ export default function AuthGate({ children }: AuthGateProps) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    initMockData();
-    setReady(true);
+    let mounted = true;
+    void (async () => {
+      await initMockData();
+      if (mounted) {
+        setReady(true);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
   }, [initMockData]);
 
   useEffect(() => {
