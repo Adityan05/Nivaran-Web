@@ -90,7 +90,6 @@ export default function IssuesPage() {
             const assigneeLabel = assignee
               ? `Assigned to ${assignee.fullName}`
               : "Unassigned";
-            const isUnassigned = !issue.assignedToId;
             const cardStateClass =
               issue.status === "Resolved"
                 ? "border-slate-300/45 ring-1 ring-emerald-300/65 bg-linear-to-b from-emerald-50/55 to-white shadow-[0_1px_0_rgba(255,255,255,0.75)_inset,0_8px_20px_rgba(2,6,23,0.065)] hover:shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_12px_22px_rgba(2,6,23,0.08)]"
@@ -104,7 +103,7 @@ export default function IssuesPage() {
                 className="group block"
               >
                 <article
-                  className={`relative h-[440px] overflow-hidden rounded-2xl border transition-all duration-300 ease-in-out hover:-translate-y-0.5 hover:opacity-100 ${cardStateClass} ${isUnassigned ? "issue-card-unassigned" : ""}`}
+                  className={`relative h-[440px] overflow-hidden rounded-2xl border transition-all duration-300 ease-in-out hover:-translate-y-0.5 hover:opacity-100 ${cardStateClass}`}
                 >
                   <div className="relative h-44 border-b border-slate-200/70">
                     <img
@@ -177,7 +176,7 @@ export default function IssuesPage() {
                           {assigneeLabel}
                         </span>
                       ) : (
-                        <span className="rounded-full border border-rose-300/45 bg-rose-100 px-2.5 py-1 font-semibold text-rose-700">
+                        <span className="unassigned-pill-glow rounded-full border border-rose-300/45 bg-rose-100 px-2.5 py-1 font-semibold text-rose-700">
                           Unassigned
                         </span>
                       )}

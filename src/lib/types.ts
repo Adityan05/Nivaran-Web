@@ -95,6 +95,33 @@ export interface AppNotification {
   issueId?: string;
 }
 
+export type FloodRiskLevel = "Low" | "Moderate" | "High" | "Critical";
+
+export type FloodRiskSourceTag =
+  | "forecast"
+  | "history"
+  | "issue_trend"
+  | "gemini_summary";
+
+export interface FloodRiskAlert {
+  id: string;
+  area: string;
+  wardCode?: string;
+  drainageZone?: string;
+  lat: number;
+  lng: number;
+  riskLevel: FloodRiskLevel;
+  riskScore: number;
+  confidenceScore: number;
+  sourceTags: FloodRiskSourceTag[];
+  expectedDate: string;
+  expectedRainMm: number;
+  historicalFloodSignals: number;
+  warning: string;
+  recommendedAction: string;
+  targetDepartmentId: string;
+}
+
 export interface DashboardMetric {
   label: string;
   value: number;

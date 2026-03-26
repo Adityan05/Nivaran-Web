@@ -16,6 +16,7 @@ import {
 import {
   AppNotification,
   Department,
+  FloodRiskAlert,
   IssueComment,
   IssueEvent,
   IssueRecord,
@@ -43,7 +44,18 @@ interface AppState {
   comments: IssueComment[];
   notifications: AppNotification[];
   departments: Department[];
+  floodRiskAlerts: FloodRiskAlert[];
+  floodRiskSummary: string | null;
+  floodRiskUpdatedAt: string | null;
+  floodRiskLoading: boolean;
+  floodRiskAutomationNote: string | null;
+  liveOpsStatusSummary: string | null;
+  liveOpsStatusSignature: string | null;
+  liveOpsStatusUpdatedAt: string | null;
+  liveOpsStatusLoading: boolean;
   initMockData: () => Promise<void>;
+  refreshFloodRiskAlerts: (issues: IssueRecord[]) => Promise<void>;
+  refreshLiveOpsStatus: (issues: IssueRecord[]) => Promise<void>;
   loginAs: (email: string) => Promise<{ ok: boolean; message: string }>;
   logout: () => void;
   assignIssue: (issueId: string, assigneeId: string, actorId: string) => void;
@@ -148,6 +160,15 @@ export const useAppStore = create<AppState>()(
       comments: [],
       notifications: [],
       departments: [],
+      floodRiskAlerts: [],
+      floodRiskSummary: null,
+      floodRiskUpdatedAt: null,
+      floodRiskLoading: false,
+      floodRiskAutomationNote: null,
+      liveOpsStatusSummary: null,
+      liveOpsStatusSignature: null,
+      liveOpsStatusUpdatedAt: null,
+      liveOpsStatusLoading: false,
 
       initMockData: async () => {
         if (typeof window === "undefined") {
@@ -312,6 +333,163 @@ export const useAppStore = create<AppState>()(
             notifications: [],
             departments: [],
             sessionUser: null,
+          });
+        }
+      },
+
+      refreshFloodRiskAlerts: async (issues) => {
+        const state = get();
+        const now = Date.now();
+        const lastUpdated = state.floodRiskUpdatedAt
+          ? new Date(state.floodRiskUpdatedAt).getTime()
+          : 0;
+
+        // Avoid excessive API calls while allowing periodic refresh.
+        if (state.floodRiskLoading || (lastUpdated && now - lastUpdated < 15 * 60 * 1000)) {
+          return;
+        }
+
+        const payload = issues
+          .filter((issue) => Number.isFinite(issue.lat) && Number.isFinite(issue.lng))
+          .map((issue) => ({
+            id: issue.id,
+            title: issue.title,
+            description: issue.description,
+            category: issue.category,
+            tags: issue.tags,
+            createdAt: issue.createdAt,
+            lat: issue.lat,
+            lng: issue.lng,
+            locationAddress: issue.locationAddress,
+            area: issue.area,
+          }));
+
+        if (payload.length === 0) {
+          set({
+            floodRiskAlerts: [],
+            floodRiskSummary: null,
+            floodRiskUpdatedAt: nowISO(),
+            floodRiskLoading: false,
+            floodRiskAutomationNote: null,
+          });
+          return;
+        }
+
+        set({ floodRiskLoading: true });
+
+        try {
+          const response = await fetch("/api/flood-risk", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ issues: payload }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Flood risk API failed with ${response.status}`);
+          }
+
+          const data = (await response.json()) as {
+            alerts?: FloodRiskAlert[];
+            summary?: string | null;
+            automation?: {
+              tasksCreated?: number;
+              notificationsCreated?: number;
+            };
+          };
+
+          const tasksCreated = Number(data.automation?.tasksCreated ?? 0);
+          const notificationsCreated = Number(
+            data.automation?.notificationsCreated ?? 0,
+          );
+          const automationNote =
+            tasksCreated > 0 || notificationsCreated > 0
+              ? `Auto-created ${tasksCreated} preventive task(s) and ${notificationsCreated} notification(s).`
+              : "No new preventive tasks were required in this refresh.";
+
+          set({
+            floodRiskAlerts: Array.isArray(data.alerts) ? data.alerts : [],
+            floodRiskSummary: data.summary ?? null,
+            floodRiskUpdatedAt: nowISO(),
+            floodRiskLoading: false,
+            floodRiskAutomationNote: automationNote,
+          });
+        } catch (error) {
+          console.error("Failed to refresh flood risk alerts.", error);
+          set({
+            floodRiskLoading: false,
+            floodRiskUpdatedAt: nowISO(),
+            floodRiskAutomationNote:
+              "Risk refresh failed. Automation status could not be confirmed.",
+          });
+        }
+      },
+
+      refreshLiveOpsStatus: async (issues) => {
+        const state = get();
+        if (state.liveOpsStatusLoading) {
+          return;
+        }
+
+        const signature = issues
+          .map((issue) => `${issue.id}:${issue.status}`)
+          .sort()
+          .join("|");
+
+        if (
+          signature &&
+          state.liveOpsStatusSignature === signature &&
+          state.liveOpsStatusSummary
+        ) {
+          return;
+        }
+
+        const payload = issues.map((issue) => ({
+          id: issue.id,
+          status: issue.status,
+          assignedDepartmentId: issue.assignedDepartmentId,
+        }));
+
+        set({ liveOpsStatusLoading: true });
+
+        try {
+          const response = await fetch("/api/live-ops-status", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              signature,
+              issues: payload,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Live ops status API failed with ${response.status}`);
+          }
+
+          const data = (await response.json()) as {
+            summary?: string;
+            signature?: string;
+          };
+
+          set({
+            liveOpsStatusSummary:
+              data.summary ??
+              "Operations summary is currently unavailable. Keep tracking open issue queues.",
+            liveOpsStatusSignature: data.signature ?? signature,
+            liveOpsStatusUpdatedAt: nowISO(),
+            liveOpsStatusLoading: false,
+          });
+        } catch (error) {
+          console.error("Failed to refresh live ops status.", error);
+          set({
+            liveOpsStatusLoading: false,
+            liveOpsStatusUpdatedAt: nowISO(),
+            liveOpsStatusSummary:
+              state.liveOpsStatusSummary ??
+              "Operations summary is currently unavailable. Keep tracking open issue queues.",
           });
         }
       },
@@ -754,6 +932,13 @@ export const useAppStore = create<AppState>()(
         comments: state.comments,
         notifications: state.notifications,
         departments: state.departments,
+        floodRiskAlerts: state.floodRiskAlerts,
+        floodRiskSummary: state.floodRiskSummary,
+        floodRiskUpdatedAt: state.floodRiskUpdatedAt,
+        floodRiskAutomationNote: state.floodRiskAutomationNote,
+        liveOpsStatusSummary: state.liveOpsStatusSummary,
+        liveOpsStatusSignature: state.liveOpsStatusSignature,
+        liveOpsStatusUpdatedAt: state.liveOpsStatusUpdatedAt,
       }),
     },
   ),

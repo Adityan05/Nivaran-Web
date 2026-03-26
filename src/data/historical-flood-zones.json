@@ -1,0 +1,46 @@
+[
+  {
+    "id": "zone-rne-001",
+    "area": "Raj Nagar Extension",
+    "wardCode": "WARD-12",
+    "drainageZone": "DZ-North-2",
+    "lat": 28.6996,
+    "lng": 77.4408,
+    "severityWeight": 0.82,
+    "historicalFloodCount": 11,
+    "targetDepartmentId": "dept_sanitation"
+  },
+  {
+    "id": "zone-rkgit-002",
+    "area": "RKGIT Belt",
+    "wardCode": "WARD-14",
+    "drainageZone": "DZ-North-3",
+    "lat": 28.7004,
+    "lng": 77.4412,
+    "severityWeight": 0.76,
+    "historicalFloodCount": 8,
+    "targetDepartmentId": "dept_public_works"
+  },
+  {
+    "id": "zone-sector3-003",
+    "area": "Sector-3 Ghaziabad",
+    "wardCode": "WARD-09",
+    "drainageZone": "DZ-Central-1",
+    "lat": 28.6692,
+    "lng": 77.4538,
+    "severityWeight": 0.69,
+    "historicalFloodCount": 6,
+    "targetDepartmentId": "dept_sanitation"
+  },
+  {
+    "id": "zone-ghz-east-004",
+    "area": "Ghaziabad East Corridor",
+    "wardCode": "WARD-21",
+    "drainageZone": "DZ-East-1",
+    "lat": 28.6835,
+    "lng": 77.4661,
+    "severityWeight": 0.73,
+    "historicalFloodCount": 7,
+    "targetDepartmentId": "dept_public_works"
+  }
+]

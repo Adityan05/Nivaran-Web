@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -14,6 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { AlertTriangle, CloudRain } from "lucide-react";
 import KpiCard from "@/components/kpi-card";
 import { useAppStore } from "@/lib/store";
 import { slaTone } from "@/lib/ui";
@@ -22,10 +23,27 @@ import { getVisibleIssues } from "@/lib/access";
 export default function DashboardPage() {
   const issues = useAppStore((s) => s.issues);
   const sessionUser = useAppStore((s) => s.sessionUser);
+  const floodRiskAlerts = useAppStore((s) => s.floodRiskAlerts);
+  const floodRiskSummary = useAppStore((s) => s.floodRiskSummary);
+  const floodRiskLoading = useAppStore((s) => s.floodRiskLoading);
+  const floodRiskAutomationNote = useAppStore((s) => s.floodRiskAutomationNote);
+  const refreshFloodRiskAlerts = useAppStore((s) => s.refreshFloodRiskAlerts);
+  const liveOpsStatusSummary = useAppStore((s) => s.liveOpsStatusSummary);
+  const liveOpsStatusLoading = useAppStore((s) => s.liveOpsStatusLoading);
+  const refreshLiveOpsStatus = useAppStore((s) => s.refreshLiveOpsStatus);
+  const isSuperAdmin = sessionUser?.role === "super_admin";
   const visibleIssues = useMemo(
     () => getVisibleIssues(issues, sessionUser),
     [issues, sessionUser],
   );
+
+  useEffect(() => {
+    if (!isSuperAdmin) {
+      return;
+    }
+    void refreshFloodRiskAlerts(issues);
+    void refreshLiveOpsStatus(issues);
+  }, [isSuperAdmin, issues, refreshFloodRiskAlerts, refreshLiveOpsStatus]);
 
   const stats = useMemo(() => {
     const openIssues = visibleIssues.filter(
@@ -212,6 +230,110 @@ export default function DashboardPage() {
           </div>
         </article>
       </section>
+
+      {isSuperAdmin ? (
+        <section className="ui-card border-sky-300/45 bg-gradient-to-b from-sky-50/90 to-white p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold tracking-tight text-slate-900">
+                Live Operations Status
+              </h3>
+              <p className="mt-1 text-sm text-slate-600">
+                AI summary is reused across refreshes and regenerates only when
+                issue count or issue statuses change.
+              </p>
+            </div>
+            {liveOpsStatusLoading ? (
+              <span className="rounded-full border border-sky-300/60 bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-700">
+                Updating...
+              </span>
+            ) : null}
+          </div>
+
+          <p className="mt-3 rounded-xl border border-sky-200/65 bg-white/80 p-3 text-sm font-medium text-slate-700">
+            {liveOpsStatusSummary ??
+              "Generating your current operations summary..."}
+          </p>
+        </section>
+      ) : null}
+
+      {isSuperAdmin ? (
+        <section className="ui-card border-amber-300/50 bg-gradient-to-b from-amber-50/95 to-rose-50/65 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="inline-flex items-center gap-2 text-lg font-semibold tracking-tight text-slate-900">
+                <AlertTriangle size={18} className="text-amber-600" />
+                Rainfall Flood-Risk Warning
+              </h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Forecast-driven, pattern-based alerts for potential water
+                logging zones in the next few days.
+              </p>
+            </div>
+            {floodRiskLoading ? (
+              <span className="rounded-full border border-amber-300/70 bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                Refreshing...
+              </span>
+            ) : null}
+          </div>
+
+          {floodRiskSummary ? (
+            <p className="mt-3 rounded-xl border border-amber-300/45 bg-white/70 p-3 text-sm font-medium text-slate-700">
+              {floodRiskSummary}
+            </p>
+          ) : null}
+
+          {floodRiskAlerts.length > 0 ? (
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              {floodRiskAlerts.map((alert) => (
+                <article
+                  key={alert.id}
+                  className="rounded-xl border border-amber-300/40 bg-white/75 p-3"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    {alert.riskLevel} risk
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                    {alert.area}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-700">{alert.warning}</p>
+                  <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                    <CloudRain size={12} />
+                    {alert.expectedRainMm} mm forecast on{" "}
+                    {new Date(alert.expectedDate).toLocaleDateString("en-IN", {
+                      day: "numeric",
+                      month: "short",
+                    })}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-slate-300/55 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                      Confidence {(alert.confidenceScore * 100).toFixed(0)}%
+                    </span>
+                    {alert.sourceTags.map((tag) => (
+                      <span
+                        key={`${alert.id}-${tag}`}
+                        className="rounded-full border border-slate-300/55 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600"
+                      >
+                        {tag.replace("_", " ")}
+                      </span>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : !floodRiskLoading ? (
+            <p className="mt-3 text-sm text-slate-600">
+              No elevated flood-risk zones detected for current forecast.
+            </p>
+          ) : null}
+
+          {floodRiskAutomationNote ? (
+            <p className="mt-3 rounded-xl border border-slate-300/45 bg-white/70 p-3 text-xs font-semibold text-slate-600">
+              {floodRiskAutomationNote}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }
