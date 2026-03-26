@@ -26,6 +26,7 @@
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Data Model (Firestore)](#data-model-firestore)
+- [AI And Prediction APIs](#ai-and-prediction-apis)
 - [Environment Variables](#environment-variables)
 - [Getting Started](#getting-started)
 - [Run Commands](#run-commands)
@@ -56,8 +57,14 @@ This app currently uses Firebase Firestore collections for operations data and a
 ### Dashboards And Views
 
 - Dashboard KPIs and summary widgets
+- Superadmin-only live operations status summary (AI generated)
+- Cached AI summary regeneration only when issue count/status changes
+- Superadmin rainfall flood-risk warning panel with confidence + source tags
 - Assignment board (kanban by status)
-- Map view for location-based issue monitoring
+- Map view for location-based issue monitoring with layer toggles
+- Predicted flood-risk overlays (Low/Moderate/High/Critical)
+- Unassigned issue hotspot overlays
+- Status-based marker animations (including active in-progress marker effect)
 - Notifications inbox with read/unread state
 
 ### Governance And Permissions
@@ -68,10 +75,24 @@ This app currently uses Firebase Firestore collections for operations data and a
 
 ### UI/UX Improvements Included
 
-- Responsive shell layout with sidebar navigation
+- Responsive shell layout with desktop sidebar + mobile drawer navigation
 - Notification badge in nav
 - Better issue card density and readability
 - Placeholder image fallback for unavailable media
+- Unassigned issue pill glow animation for attention
+
+### Intelligence And Automation
+
+- Rainfall forecast ingestion for next 5 days (Open-Meteo)
+- Historical flood-zone ingestion with fallback chain:
+  - external URL feed
+  - Firestore snapshot collection
+  - local seed dataset
+- Predictive risk scoring with confidence score
+- Source tagging (forecast, history, issue trend, gemini summary)
+- Risk snapshot persistence for timeline/audit
+- Auto preventive task creation for High/Critical risk
+- Auto department-head notifications for preventive tasks
 
 ## Role Model And Access
 
@@ -130,18 +151,27 @@ Nivaran-Web/
     lib/
       access.ts
       firebase.ts
+      firebase-admin.ts
       store.ts
       types.ts
+    data/
+      historical-flood-zones.json
+    app/api/
+      flood-risk/route.ts
+      live-ops-status/route.ts
 ```
 
 Important files:
 
 - `src/lib/store.ts`: App state, Firestore reads/writes, operational actions
 - `src/lib/access.ts`: Permission model and transition guards
-- `src/lib/types.ts`: Domain types (issues, users, events, comments, notifications)
+- `src/lib/types.ts`: Domain types (issues, users, events, comments, notifications, flood risk)
+- `src/lib/firebase-admin.ts`: Server-side privileged Firestore client initialization
 - `src/app/(app)/issues/page.tsx`: Issue inbox cards
 - `src/app/(app)/issues/[id]/page.tsx`: Detailed issue workspace
 - `src/app/login/page.tsx`: Email-based login against ops users
+- `src/app/api/flood-risk/route.ts`: Predictive flood-risk computation + automation
+- `src/app/api/live-ops-status/route.ts`: Cached AI ops summary generation
 
 ## Data Model (Firestore)
 
@@ -151,6 +181,9 @@ Collections used by this app:
 - `ops_departments`
 - `ops_issues`
 - `ops_notifications`
+- `ops_risk_alerts` (persisted flood-risk snapshots)
+- `ops_preventive_tasks` (auto-generated preventive actions)
+- `ops_historical_flood_zones` (ingested/fallback historical flood references)
 
 Subcollections:
 
@@ -163,6 +196,21 @@ High-level shape:
 - `ops_departments`: department metadata
 - `ops_issues`: issue core fields + assignment/status/reroute metadata
 - `ops_notifications`: user alerts for assignments/reroutes/status changes
+- `ops_risk_alerts`: AI risk snapshot timeline with alert arrays + summary
+- `ops_preventive_tasks`: preventive work items generated from elevated risk
+- `ops_historical_flood_zones`: normalized ward/drainage historical flood zones
+
+## AI And Prediction APIs
+
+- `POST /api/flood-risk`
+  - Computes flood-risk alerts using forecast + historical + issue trend data
+  - Generates concise summary text with Gemini (when key configured)
+  - Persists risk snapshots and can auto-create preventive tasks + notifications
+
+- `POST /api/live-ops-status`
+  - Generates superadmin operations summary using Gemini 2.5 Flash
+  - Falls back to deterministic heuristic summary when Gemini is unavailable
+  - Client-side cache reuse is based on issue count/status signature
 
 ## Environment Variables
 
@@ -176,12 +224,25 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 NEXT_PUBLIC_FIREBASE_APP_ID=
+
+# Optional but recommended for AI + server automation
+GEMINI_API_KEY=
+
+# Optional external historical flood feed (JSON endpoint)
+HISTORICAL_FLOOD_DATA_URL=
+
+# Required for reliable server-side Admin writes in many deployments
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=
 ```
 
 Notes:
 
 - `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is required for the map page.
 - Firebase keys are required to load and mutate `ops_*` data.
+- `GEMINI_API_KEY` enables AI summaries (live ops + flood warning narrative).
+- `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY` are server-only credentials. Do not expose with `NEXT_PUBLIC_`.
+- `FIREBASE_PRIVATE_KEY` must preserve newline formatting (escaped `\n` in env is supported).
 
 ## Getting Started
 
@@ -227,8 +288,10 @@ npm run lint     # Lint checks
 2. Review incoming issues in Issue Inbox.
 3. Assign within hierarchy (super_admin -> department_head -> engineer).
 4. Reroute cross-department issues when needed.
-5. Track timeline, comments, and notifications.
-6. Move issue through statuses until closure.
+5. Superadmin monitors live AI status and predictive flood-risk alerts.
+6. Elevated risk auto-creates preventive tasks and notifies relevant department heads.
+7. Track timeline, comments, and notifications.
+8. Move issue through statuses until closure.
 
 ## Troubleshooting
 
@@ -247,6 +310,22 @@ Quick checks:
 - Verify `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
 - Confirm Maps API is enabled for the key.
 
+### Live Ops Status is not AI-generated
+
+- Ensure `GEMINI_API_KEY` is set.
+- If unavailable, app intentionally uses a deterministic fallback summary.
+
+### Flood prediction works but no historical context is reflected
+
+- Set `HISTORICAL_FLOOD_DATA_URL` to a valid JSON feed, or
+- Populate `ops_historical_flood_zones`, or
+- rely on local seed file fallback (`src/data/historical-flood-zones.json`).
+
+### Preventive tasks are not being created
+
+- Verify server-side admin credentials (`FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`) or ADC setup.
+- Confirm Firestore write permissions for `ops_preventive_tasks` and `ops_notifications`.
+
 ### Login fails for valid-looking email
 
 - Ensure user exists in `ops_users`.
@@ -263,6 +342,8 @@ This is expected if the issue moves outside your department scope. The app now s
 - Add monitoring/alerts around failed writes and permission denials.
 - Consider moving sensitive write paths to Cloud Functions.
 - Add integration tests for assignment/reroute/status workflows.
+- Add scheduled background refresh for risk snapshots (cron/worker) for zero-latency dashboard loads.
+- Consider queue-based execution for preventive automation at larger scale.
 
 ## Contributing
 
