@@ -54,7 +54,11 @@ export function canAssignIssue(user: SessionUser, issue: IssueRecord): boolean {
   if (!user) {
     return false;
   }
-  if (issue.status === "Resolved" || issue.status === "Rejected") {
+  if (
+    issue.status === "Resolved" ||
+    issue.status === "Verified" ||
+    issue.status === "Rejected"
+  ) {
     return false;
   }
   if (user.role === "commissioner") {
@@ -125,7 +129,11 @@ export function canRerouteIssue(user: SessionUser, issue: IssueRecord): boolean 
   if (!user) {
     return false;
   }
-  if (issue.status === "Resolved" || issue.status === "Rejected") {
+  if (
+    issue.status === "Resolved" ||
+    issue.status === "Verified" ||
+    issue.status === "Rejected"
+  ) {
     return false;
   }
   if (user.role === "commissioner") {
@@ -181,7 +189,11 @@ export function getAllowedStatusTransitions(
   }
 
   if (user?.role === "engineer") {
-    if (issue.status === "Resolved" || issue.status === "Rejected") {
+    if (
+      issue.status === "Resolved" ||
+      issue.status === "Verified" ||
+      issue.status === "Rejected"
+    ) {
       return [];
     }
     return ["Resolved"];
@@ -207,6 +219,11 @@ export function canAccessIssue(user: SessionUser, issue: IssueRecord): boolean {
   if (!user) {
     return false;
   }
+
+  if (issue.status === "Verified") {
+    return false;
+  }
+
   if (user.role === "commissioner") {
     return true;
   }
@@ -236,10 +253,13 @@ export function getVisibleIssues(
   if (!user) {
     return [];
   }
+  const issuesWithoutVerified = issues.filter(
+    (issue) => issue.status !== "Verified",
+  );
   if (canViewAllIssues(user)) {
-    return issues;
+    return issuesWithoutVerified;
   }
-  return issues.filter((issue) => canAccessIssue(user, issue));
+  return issuesWithoutVerified.filter((issue) => canAccessIssue(user, issue));
 }
 
 export function getVisibleUsers(

@@ -55,6 +55,10 @@ export default function IssueDetailsPage() {
     notFound();
   }
 
+  if (issue.status === "Verified") {
+    notFound();
+  }
+
   if (!canAccessIssue(sessionUser, issue)) {
     return (
       <div className="ui-card p-6">

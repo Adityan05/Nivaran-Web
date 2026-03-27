@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import { motion } from "motion/react";
 import {
   Bar,
   BarChart,
@@ -19,6 +20,7 @@ import KpiCard from "@/components/kpi-card";
 import { useAppStore } from "@/lib/store";
 import { slaTone } from "@/lib/ui";
 import { getVisibleIssues } from "@/lib/access";
+import { useIssueLiveRefresh } from "@/lib/use-issue-live-refresh";
 
 export default function DashboardPage() {
   const issues = useAppStore((s) => s.issues);
@@ -36,6 +38,8 @@ export default function DashboardPage() {
     () => getVisibleIssues(issues, sessionUser),
     [issues, sessionUser],
   );
+
+  useIssueLiveRefresh(true);
 
   useEffect(() => {
     if (!isCommissioner) {
@@ -111,7 +115,12 @@ export default function DashboardPage() {
   const pieColors = ["#0f172a", "#334155", "#0369a1", "#1d4ed8", "#475569"];
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      className="space-y-6"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: "easeOut" }}
+    >
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <KpiCard label="Total Issues" value={stats.total} />
         <KpiCard label="Open" value={stats.open} tone="warn" />
@@ -387,6 +396,6 @@ export default function DashboardPage() {
           ) : null}
         </section>
       ) : null}
-    </div>
+    </motion.div>
   );
 }

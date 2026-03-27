@@ -174,6 +174,10 @@ export default function ResolveIssueCameraPage() {
     notFound();
   }
 
+  if (issue.status === "Verified") {
+    notFound();
+  }
+
   if (!sessionUser) {
     return (
       <div className="ui-card p-6">

@@ -9,6 +9,7 @@ export type IssueStatus =
   | "Acknowledged"
   | "In Progress"
   | "Resolved"
+  | "Verified"
   | "Rejected";
 
 export type Urgency = "Low" | "Medium" | "High";

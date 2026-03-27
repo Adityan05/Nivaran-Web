@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { CheckCircle2, Clock3, MapPin, ThumbsUp } from "lucide-react";
+import { motion } from "motion/react";
 import { useAppStore } from "@/lib/store";
 import {
   formatRelative,
@@ -11,6 +12,7 @@ import {
   urgencyBadgeClass,
 } from "@/lib/ui";
 import { getVisibleIssues } from "@/lib/access";
+import { useIssueLiveRefresh } from "@/lib/use-issue-live-refresh";
 
 export default function IssuesPage() {
   const issues = useAppStore((s) => s.issues);
@@ -24,6 +26,8 @@ export default function IssuesPage() {
     () => getVisibleIssues(issues, sessionUser),
     [issues, sessionUser],
   );
+
+  useIssueLiveRefresh(true);
 
   const filtered = useMemo(() => {
     return visibleIssues.filter((issue) => {
@@ -40,7 +44,12 @@ export default function IssuesPage() {
   }, [visibleIssues, status, urgency, search]);
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      className="space-y-6"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.32, ease: "easeOut" }}
+    >
       <div className="ui-card border-slate-300/45 bg-linear-to-b from-slate-50/95 to-slate-100/80 p-5">
         <h3 className="ui-page-title">Issue Inbox</h3>
         <p className="ui-page-subtitle">
@@ -192,6 +201,6 @@ export default function IssuesPage() {
           })}
         </section>
       )}
-    </div>
+    </motion.div>
   );
 }

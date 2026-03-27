@@ -133,6 +133,7 @@ function normalizeStatus(status: unknown): IssueStatus {
   if (value === "acknowledged") return "Acknowledged";
   if (value === "in progress" || value === "in_progress") return "In Progress";
   if (value === "resolved") return "Resolved";
+  if (value === "verified") return "Verified";
   if (value === "rejected") return "Rejected";
   if (value === "assigned to department") return "Reported";
   if (value === "assigned to supervisor") return "Acknowledged";
@@ -306,7 +307,7 @@ function mapIssueRow(row: JsonObject): IssueRecord {
         ? row.is_unresolved
         : typeof row.isUnresolved === "boolean"
           ? row.isUnresolved
-          : !["Resolved", "Rejected"].includes(status),
+          : !["Resolved", "Verified", "Rejected"].includes(status),
     lastStatusUpdateAt:
       row.last_status_update_at || row.lastStatusUpdateAt
         ? asISO(row.last_status_update_at ?? row.lastStatusUpdateAt)
