@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { FieldValue } from "firebase-admin/firestore";
 import historicalZonesSeed from "@/data/historical-flood-zones.json";
-import { getAdminFirestore } from "@/lib/firebase-admin";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import type {
   FloodRiskAlert,
   FloodRiskLevel,
@@ -50,6 +49,10 @@ const floodKeywords = [
   "stagnant",
   "puddle",
 ];
+
+function nowISO(): string {
+  return new Date().toISOString();
+}
 
 function isFloodRelated(issue: IssueRecord): boolean {
   const haystack = [issue.title, issue.description, issue.category, ...(issue.tags ?? [])]
@@ -104,15 +107,15 @@ function toHistoricalZone(raw: unknown, index: number): HistoricalZone | null {
     lng,
     severityWeight: clamp(Number(data.severityWeight ?? 0.5), 0, 1),
     historicalFloodCount: Math.max(0, Number(data.historicalFloodCount ?? 0)),
-    targetDepartmentId: String(data.targetDepartmentId ?? "dept_sanitation"),
+    targetDepartmentId: String(data.targetDepartmentId ?? "dept-6"),
   };
 }
 
 async function loadHistoricalZones(): Promise<{
   zones: HistoricalZone[];
-  source: "external" | "firestore" | "seed";
+  source: "external" | "supabase" | "seed";
 }> {
-  const db = getAdminFirestore();
+  const admin = getSupabaseAdmin();
   const externalUrl = process.env.HISTORICAL_FLOOD_DATA_URL;
 
   if (externalUrl) {
@@ -123,43 +126,75 @@ async function loadHistoricalZones(): Promise<{
         const rows = Array.isArray(raw)
           ? raw
           : raw && typeof raw === "object" && Array.isArray((raw as { data?: unknown[] }).data)
-            ? ((raw as { data: unknown[] }).data)
+            ? (raw as { data: unknown[] }).data
             : [];
+
         const zones = rows
           .map((row, index) => toHistoricalZone(row, index))
           .filter((zone): zone is HistoricalZone => zone !== null)
           .slice(0, 25);
 
         if (zones.length > 0) {
-          if (db) {
-            const batch = db.batch();
-            for (const zone of zones) {
-              const ref = db.collection("ops_historical_flood_zones").doc(zone.id);
-              batch.set(ref, {
-                ...zone,
-                dataSource: "external",
-                ingestedAt: FieldValue.serverTimestamp(),
-              }, { merge: true });
+          if (admin) {
+            const payload = zones.map((zone) => ({
+              id: zone.id,
+              area: zone.area,
+              ward_code: zone.wardCode ?? null,
+              drainage_zone: zone.drainageZone ?? null,
+              lat: zone.lat,
+              lng: zone.lng,
+              severity_weight: zone.severityWeight,
+              historical_flood_count: zone.historicalFloodCount,
+              target_department_id: zone.targetDepartmentId,
+              data_source: "external",
+              ingested_at: nowISO(),
+            }));
+
+            const { error } = await admin
+              .from("ops_historical_flood_zones")
+              .upsert(payload, { onConflict: "id" });
+
+            if (error) {
+              console.warn("Historical zone upsert failed", error.message);
             }
-            await batch.commit();
           }
           return { zones, source: "external" };
         }
       }
     } catch {
-      // fall through to Firestore/seed fallback
+      // fall through to Supabase/seed fallback
     }
   }
 
-  if (db) {
+  if (admin) {
     try {
-      const snap = await db.collection("ops_historical_flood_zones").limit(25).get();
-      if (!snap.empty) {
-        const zones = snap.docs
-          .map((docSnap, index) => toHistoricalZone({ id: docSnap.id, ...docSnap.data() }, index))
+      const { data, error } = await admin
+        .from("ops_historical_flood_zones")
+        .select("*")
+        .limit(25);
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const zones = data
+          .map((row, index) =>
+            toHistoricalZone(
+              {
+                id: row.id,
+                area: row.area,
+                wardCode: row.ward_code ?? row.wardCode,
+                drainageZone: row.drainage_zone ?? row.drainageZone,
+                lat: row.lat,
+                lng: row.lng,
+                severityWeight: row.severity_weight ?? row.severityWeight,
+                historicalFloodCount: row.historical_flood_count ?? row.historicalFloodCount,
+                targetDepartmentId: row.target_department_id ?? row.targetDepartmentId,
+              },
+              index,
+            ),
+          )
           .filter((zone): zone is HistoricalZone => zone !== null);
+
         if (zones.length > 0) {
-          return { zones, source: "firestore" };
+          return { zones, source: "supabase" };
         }
       }
     } catch {
@@ -274,7 +309,7 @@ async function summarizeWithGemini(alerts: FloodRiskAlert[]): Promise<string | n
     .join("\n");
 
   const prompt = [
-    "You are assisting a municipal super admin dashboard.",
+    "You are assisting a municipal commissioner dashboard.",
     "Write one concise operational warning paragraph (max 65 words).",
     "Mention the highest-risk location first and include the expected date.",
     "Keep tone factual, no hype.",
@@ -309,20 +344,28 @@ async function summarizeWithGemini(alerts: FloodRiskAlert[]): Promise<string | n
 }
 
 async function persistRiskSnapshot(alerts: FloodRiskAlert[], summary: string | null): Promise<string | null> {
-  const db = getAdminFirestore();
-  if (!db) {
+  const admin = getSupabaseAdmin();
+  if (!admin) {
     return null;
   }
 
   try {
-    const ref = db.collection("ops_risk_alerts").doc();
-    await ref.set({
-      createdAt: FieldValue.serverTimestamp(),
-      summary: summary ?? null,
-      alertsCount: alerts.length,
-      alerts,
-    });
-    return ref.id;
+    const { data, error } = await admin
+      .from("ops_risk_alerts")
+      .insert({
+        created_at: nowISO(),
+        summary: summary ?? null,
+        alerts_count: alerts.length,
+        alerts,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data?.id ? String(data.id) : null;
   } catch (error) {
     console.error("Failed to persist risk snapshot", error);
     return null;
@@ -330,13 +373,16 @@ async function persistRiskSnapshot(alerts: FloodRiskAlert[], summary: string | n
 }
 
 async function runPreventiveAutomation(alerts: FloodRiskAlert[]): Promise<{ tasksCreated: number; notificationsCreated: number }> {
-  const db = getAdminFirestore();
-  if (!db) {
+  const admin = getSupabaseAdmin();
+  if (!admin) {
     return { tasksCreated: 0, notificationsCreated: 0 };
   }
 
   let tasksCreated = 0;
   let notificationsCreated = 0;
+
+  const { data: usersData } = await admin.from("ops_users").select("*");
+  const users = Array.isArray(usersData) ? usersData : [];
 
   for (const alert of alerts) {
     if (!(alert.riskLevel === "High" || alert.riskLevel === "Critical")) {
@@ -344,62 +390,81 @@ async function runPreventiveAutomation(alerts: FloodRiskAlert[]): Promise<{ task
     }
 
     const dedupeKey = `${alert.id}:${alert.expectedDate}`;
-    const existing = await db
-      .collection("ops_preventive_tasks")
-      .where("dedupeKey", "==", dedupeKey)
-      .limit(1)
-      .get();
 
-    if (!existing.empty) {
+    const { data: existingRows, error: dedupeError } = await admin
+      .from("ops_preventive_tasks")
+      .select("id")
+      .eq("dedupe_key", dedupeKey)
+      .limit(1);
+
+    if (dedupeError) {
+      console.warn("Preventive task dedupe check failed", dedupeError.message);
       continue;
     }
 
-    const taskRef = db.collection("ops_preventive_tasks").doc();
-    await taskRef.set({
-      dedupeKey,
-      createdAt: FieldValue.serverTimestamp(),
+    if (Array.isArray(existingRows) && existingRows.length > 0) {
+      continue;
+    }
+
+    const { error: taskError } = await admin.from("ops_preventive_tasks").insert({
+      dedupe_key: dedupeKey,
+      created_at: nowISO(),
       status: "Open",
       type: "flood_prevention",
       title: `Preventive flood readiness for ${alert.area}`,
       area: alert.area,
-      riskLevel: alert.riskLevel,
-      expectedDate: alert.expectedDate,
-      riskScore: alert.riskScore,
-      confidenceScore: alert.confidenceScore,
-      targetDepartmentId: alert.targetDepartmentId,
-      recommendedAction: alert.recommendedAction,
-      sourceTags: alert.sourceTags,
+      risk_level: alert.riskLevel,
+      expected_date: alert.expectedDate,
+      risk_score: alert.riskScore,
+      confidence_score: alert.confidenceScore,
+      target_department_id: alert.targetDepartmentId,
+      recommended_action: alert.recommendedAction,
+      source_tags: alert.sourceTags,
     });
+
+    if (taskError) {
+      console.warn("Preventive task insert failed", taskError.message);
+      continue;
+    }
+
     tasksCreated += 1;
 
-    const heads = await db
-      .collection("ops_users")
-      .where("role", "==", "department_head")
-      .where("departmentId", "==", alert.targetDepartmentId)
-      .get();
-
-    const batch = db.batch();
-    let localNotifications = 0;
-    for (const head of heads.docs) {
-      if (head.data().active === false) {
-        continue;
+    const handlers = users.filter((user) => {
+      const role = String(user.role ?? "").toLowerCase();
+      const departmentId = String(user.department_id ?? user.departmentId ?? "");
+      const active = user.active !== false && user.is_active !== false;
+      if (!active) {
+        return false;
       }
-      const notificationRef = db.collection("ops_notifications").doc();
-      batch.set(notificationRef, {
-        userId: head.id,
-        title: `Preventive task created (${alert.riskLevel})`,
-        body: `Flood-risk readiness task created for ${alert.area}.`,
-        type: "preventive_task",
-        isRead: false,
-        createdAt: FieldValue.serverTimestamp(),
-      });
-      localNotifications += 1;
+      if (departmentId !== alert.targetDepartmentId) {
+        return false;
+      }
+      return role === "zonal_officer" || role === "department_head";
+    });
+
+    if (!handlers.length) {
+      continue;
     }
 
-    if (localNotifications > 0) {
-      await batch.commit();
-      notificationsCreated += localNotifications;
+    const notificationRows = handlers.map((handler) => ({
+      user_id: String(handler.id),
+      title: `Preventive task created (${alert.riskLevel})`,
+      body: `Flood-risk readiness task created for ${alert.area}.`,
+      type: "preventive_task",
+      is_read: false,
+      created_at: nowISO(),
+    }));
+
+    const { error: notificationError } = await admin
+      .from("ops_notifications")
+      .insert(notificationRows);
+
+    if (notificationError) {
+      console.warn("Preventive notification insert failed", notificationError.message);
+      continue;
     }
+
+    notificationsCreated += notificationRows.length;
   }
 
   return { tasksCreated, notificationsCreated };
@@ -448,7 +513,7 @@ export async function POST(request: Request) {
         );
 
         const sourceTags: FloodRiskSourceTag[] = ["forecast"];
-        if (source === "external" || source === "firestore" || source === "seed") {
+        if (source === "external" || source === "supabase" || source === "seed") {
           sourceTags.push("history");
         }
         if (totalSignals > 0) {
@@ -511,7 +576,7 @@ export async function POST(request: Request) {
               level === "Critical" || level === "High"
                 ? "Pre-position pumping teams and monitor drainage chokepoints proactively."
                 : "Continue monitoring rainfall and complaint inflow.",
-            targetDepartmentId: "dept_sanitation",
+            targetDepartmentId: "dept-6",
           });
         } catch {
           continue;

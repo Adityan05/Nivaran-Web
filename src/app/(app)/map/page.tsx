@@ -17,7 +17,7 @@ export default function MapPage() {
   const sessionUser = useAppStore((s) => s.sessionUser);
   const floodRiskAlerts = useAppStore((s) => s.floodRiskAlerts);
   const refreshFloodRiskAlerts = useAppStore((s) => s.refreshFloodRiskAlerts);
-  const isSuperAdmin = sessionUser?.role === "super_admin";
+  const isCommissioner = sessionUser?.role === "commissioner";
 
   const visibleIssues = useMemo(
     () => getVisibleIssues(issues, sessionUser),
@@ -25,26 +25,26 @@ export default function MapPage() {
   );
 
   useEffect(() => {
-    if (!isSuperAdmin) {
+    if (!isCommissioner) {
       return;
     }
     void refreshFloodRiskAlerts(issues);
-  }, [isSuperAdmin, issues, refreshFloodRiskAlerts]);
+  }, [isCommissioner, issues, refreshFloodRiskAlerts]);
 
   return (
     <div className="space-y-5">
       <header className="ui-card p-5">
         <h3 className="ui-page-title">Issue Map</h3>
         <p className="ui-page-subtitle">
-          Google Maps is role-aware. Super admins see all markers, and other
-          roles only see issues in their allowed department/area scope. Super
-          admins also get predictive flood-risk overlays.
+          Google Maps is role-aware. Commissioners see all markers, and other
+          roles only see issues in their allowed department/area scope.
+          Commissioners also get predictive flood-risk overlays.
         </p>
       </header>
 
       <IssuesMap
         issues={visibleIssues}
-        floodRiskAlerts={isSuperAdmin ? floodRiskAlerts : []}
+        floodRiskAlerts={isCommissioner ? floodRiskAlerts : []}
       />
     </div>
   );

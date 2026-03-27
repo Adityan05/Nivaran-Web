@@ -1,0 +1,106 @@
+[
+  {
+    "id": "civil_lines",
+    "name": "Civil Lines",
+    "ward": "North Delhi",
+    "lat": 28.6894,
+    "lng": 77.2177,
+    "aliases": ["civil lines", "kashmere gate", "isbt"]
+  },
+  {
+    "id": "karol_bagh",
+    "name": "Karol Bagh",
+    "ward": "Central Delhi",
+    "lat": 28.6506,
+    "lng": 77.1905,
+    "aliases": ["karol bagh", "pusa road", "rajendra place"]
+  },
+  {
+    "id": "city_sp",
+    "name": "City SP Zone",
+    "ward": "Old Delhi",
+    "lat": 28.6519,
+    "lng": 77.2282,
+    "aliases": ["city sp", "chandni chowk", "old delhi"]
+  },
+  {
+    "id": "sadar_paharganj",
+    "name": "Sadar Paharganj",
+    "ward": "Central Delhi",
+    "lat": 28.6445,
+    "lng": 77.2167,
+    "aliases": ["sadar", "paharganj", "new delhi railway station"]
+  },
+  {
+    "id": "keshav_puram",
+    "name": "Keshav Puram",
+    "ward": "North West Delhi",
+    "lat": 28.6887,
+    "lng": 77.1607,
+    "aliases": ["keshav puram", "ashok vihar", "shalimar bagh"]
+  },
+  {
+    "id": "rohini",
+    "name": "Rohini",
+    "ward": "North West Delhi",
+    "lat": 28.7495,
+    "lng": 77.0565,
+    "aliases": ["rohini", "sector 3", "sector 15 rohini"]
+  },
+  {
+    "id": "narela",
+    "name": "Narela",
+    "ward": "North Delhi",
+    "lat": 28.8527,
+    "lng": 77.0929,
+    "aliases": ["narela", "alipur", "bawana"]
+  },
+  {
+    "id": "najafgarh",
+    "name": "Najafgarh",
+    "ward": "South West Delhi",
+    "lat": 28.6106,
+    "lng": 76.9831,
+    "aliases": ["najafgarh", "dwarka", "vikaspuri"]
+  },
+  {
+    "id": "west_zone",
+    "name": "West Zone",
+    "ward": "West Delhi",
+    "lat": 28.6474,
+    "lng": 77.1128,
+    "aliases": ["west zone", "rajouri garden", "punjabi bagh"]
+  },
+  {
+    "id": "south_zone",
+    "name": "South Zone",
+    "ward": "South Delhi",
+    "lat": 28.5355,
+    "lng": 77.241,
+    "aliases": ["south zone", "saket", "greater kailash", "hauz khas"]
+  },
+  {
+    "id": "central_zone",
+    "name": "Central Zone",
+    "ward": "New Delhi",
+    "lat": 28.6139,
+    "lng": 77.209,
+    "aliases": ["central zone", "connaught place", "barakhamba"]
+  },
+  {
+    "id": "shahdara_north",
+    "name": "Shahdara North",
+    "ward": "East Delhi",
+    "lat": 28.6991,
+    "lng": 77.289,
+    "aliases": ["shahdara north", "seelampur", "yamuna vihar"]
+  },
+  {
+    "id": "shahdara_south",
+    "name": "Shahdara South",
+    "ward": "East Delhi",
+    "lat": 28.6462,
+    "lng": 77.307,
+    "aliases": ["shahdara south", "vivek vihar", "anand vihar"]
+  }
+]

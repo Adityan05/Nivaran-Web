@@ -3,17 +3,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage, StateStorage } from "zustand/middleware";
 import {
-  addDoc,
-  collection,
-  collectionGroup,
-  doc,
-  getDocs,
-  increment,
-  serverTimestamp,
-  setDoc,
-  writeBatch,
-} from "firebase/firestore";
-import {
   AppNotification,
   Department,
   FloodRiskAlert,
@@ -22,18 +11,27 @@ import {
   IssueRecord,
   IssueStatus,
   TeamMember,
+  Urgency,
 } from "@/lib/types";
-import {
-  mockDepartments,
-} from "@/lib/mock-data";
+import { mockDepartments } from "@/lib/mock-data";
 import {
   canAssignToUser,
   canRerouteIssue,
   getAllowedStatusTransitions,
 } from "@/lib/access";
-import { db } from "@/lib/firebase";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { inferZoneId } from "@/lib/zones";
 
 type SessionUser = TeamMember | null;
+
+type JsonObject = Record<string, unknown>;
+
+const TABLE_USERS = "ops_users";
+const TABLE_DEPARTMENTS = "departments";
+const TABLE_ISSUES = "issues";
+const TABLE_NOTIFICATIONS = "ops_notifications";
+const TABLE_ISSUE_EVENTS = "ops_issue_events";
+const TABLE_ISSUE_COMMENTS = "ops_issue_comments";
 
 interface AppState {
   initialized: boolean;
@@ -87,42 +85,39 @@ function asISO(input: unknown): string {
   if (!input) {
     return new Date().toISOString();
   }
+
   if (typeof input === "string") {
     const d = new Date(input);
     return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
   }
-  if (typeof input === "object") {
-    const value = input as {
-      toDate?: () => Date;
-      seconds?: number;
-      nanoseconds?: number;
-      _seconds?: number;
-      _nanoseconds?: number;
-    };
-    if (typeof value.toDate === "function") {
-      return value.toDate().toISOString();
-    }
-    if (typeof value.seconds === "number") {
-      return new Date(value.seconds * 1000).toISOString();
-    }
-    if (typeof value._seconds === "number") {
-      return new Date(value._seconds * 1000).toISOString();
-    }
+
+  if (typeof input === "number") {
+    const d = new Date(input);
+    return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
   }
+
   return new Date().toISOString();
 }
 
 function normalizeRole(role: unknown): TeamMember["role"] | null {
   const value = String(role ?? "").trim().toLowerCase();
-  if (value === "super_admin" || value === "superadmin") {
-    return "super_admin";
+
+  if (value === "commissioner" || value === "super_admin" || value === "superadmin") {
+    return "commissioner";
   }
+
   if (value === "department_head" || value === "department head") {
     return "department_head";
   }
-  if (value === "engineer" || value === "supervisor") {
+
+  if (value === "zonal_officer" || value === "zonal officer" || value === "zone_officer") {
+    return "zonal_officer";
+  }
+
+  if (value === "engineer" || value === "je" || value === "junior engineer" || value === "supervisor") {
     return "engineer";
   }
+
   return null;
 }
 
@@ -130,12 +125,238 @@ function normalizeStatus(status: unknown): IssueStatus {
   const value = String(status ?? "").trim().toLowerCase();
   if (value === "reported") return "Reported";
   if (value === "acknowledged") return "Acknowledged";
-  if (value === "in progress") return "In Progress";
+  if (value === "in progress" || value === "in_progress") return "In Progress";
   if (value === "resolved") return "Resolved";
   if (value === "rejected") return "Rejected";
   if (value === "assigned to department") return "Reported";
   if (value === "assigned to supervisor") return "Acknowledged";
   return "Reported";
+}
+
+function normalizeUrgency(urgency: unknown): Urgency {
+  const value = String(urgency ?? "").trim().toLowerCase();
+  if (value === "high") return "High";
+  if (value === "low") return "Low";
+  return "Medium";
+}
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item));
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item));
+      }
+    } catch {
+      return trimmed
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+  }
+
+  return [];
+}
+
+function normalizeVoters(value: unknown): Record<string, "upvote" | "downvote"> {
+  let parsed: unknown = value;
+
+  if (typeof value === "string" && value.trim()) {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      parsed = {};
+    }
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    return {};
+  }
+
+  const source = parsed as Record<string, unknown>;
+  const voters: Record<string, "upvote" | "downvote"> = {};
+
+  for (const [key, vote] of Object.entries(source)) {
+    const normalizedVote = String(vote ?? "").toLowerCase();
+    if (normalizedVote === "up" || normalizedVote === "upvote") {
+      voters[key] = "upvote";
+      continue;
+    }
+
+    if (normalizedVote === "down" || normalizedVote === "downvote") {
+      voters[key] = "downvote";
+    }
+  }
+
+  return voters;
+}
+
+function dueAtFromRow(row: JsonObject): string {
+  const due = row.due_at ?? row.dueAt;
+  if (due) {
+    return asISO(due);
+  }
+
+  const created = asISO(row.created_at ?? row.createdAt);
+  const createdMs = new Date(created).getTime();
+  if (!Number.isFinite(createdMs)) {
+    return nowISO();
+  }
+
+  return new Date(createdMs + 24 * 60 * 60 * 1000).toISOString();
+}
+
+function mapDepartmentRow(row: JsonObject): Department {
+  return {
+    id: String(row.id ?? ""),
+    code: String(row.code ?? ""),
+    name: String(row.name ?? ""),
+    description: row.description ? String(row.description) : undefined,
+    createdAt: row.created_at ? asISO(row.created_at) : undefined,
+  };
+}
+
+function mapUserRow(row: JsonObject): TeamMember | null {
+  const role = normalizeRole(row.role);
+  if (!role) {
+    return null;
+  }
+
+  const zoneId = inferZoneId({
+    explicitZoneId: row.zone_id ?? row.zoneId,
+    area: row.area ?? row.zone_name,
+  });
+
+  return {
+    id: String(row.id ?? ""),
+    fullName: String(row.full_name ?? row.fullName ?? row.name ?? "Unknown"),
+    email: String(row.email ?? ""),
+    role,
+    departmentId: String(row.department_id ?? row.departmentId ?? ""),
+    area: String(row.area ?? row.zone_name ?? ""),
+    zoneId,
+    workload: Number(row.workload ?? 0),
+    active: row.active !== false && row.is_active !== false,
+  };
+}
+
+function mapIssueRow(row: JsonObject): IssueRecord {
+  const lat = Number(row.location_lat ?? row.lat ?? 0);
+  const lng = Number(row.location_lng ?? row.lng ?? 0);
+  const imageUrls = toStringArray(row.image_urls ?? row.imageUrls);
+  const imageUrl = String(row.image_url ?? row.imageUrl ?? imageUrls[0] ?? "");
+  const status = normalizeStatus(row.status);
+  const locationAddress = String(row.location_address ?? row.locationAddress ?? "");
+  const zoneId = inferZoneId({
+    explicitZoneId: row.zone_id ?? row.zoneId,
+    area: row.area ?? locationAddress,
+    lat,
+    lng,
+  });
+
+  return {
+    id: String(row.id ?? ""),
+    title: String(row.title ?? "Civic issue report"),
+    description: String(row.description ?? ""),
+    category: String(row.category ?? "General"),
+    urgency: normalizeUrgency(row.urgency),
+    status,
+    area: String(row.area ?? ""),
+    assignedDepartmentId: String(row.assigned_department_id ?? row.assignedDepartmentId ?? ""),
+    assignedToId:
+      typeof row.assigned_to_id === "string" && row.assigned_to_id
+        ? row.assigned_to_id
+        : typeof row.assignedToId === "string" && row.assignedToId
+          ? row.assignedToId
+          : undefined,
+    reporterName: String(row.reporter_name ?? row.reporterName ?? row.username ?? "Citizen"),
+    createdAt: asISO(row.created_at ?? row.createdAt),
+    dueAt: dueAtFromRow(row),
+    affectedUsersCount: Number(row.affected_users_count ?? row.affectedUsersCount ?? 0),
+    tags: toStringArray(row.tags),
+    imageUrl,
+    locationAddress,
+    zoneId,
+    lat,
+    lng,
+    userId: row.user_id ? String(row.user_id) : row.userId ? String(row.userId) : undefined,
+    username: row.username ? String(row.username) : undefined,
+    upvotes: Number(row.upvotes ?? 0),
+    downvotes: Number(row.downvotes ?? 0),
+    commentsCount: Number(row.comments_count ?? row.commentsCount ?? 0),
+    isUnresolved:
+      typeof row.is_unresolved === "boolean"
+        ? row.is_unresolved
+        : typeof row.isUnresolved === "boolean"
+          ? row.isUnresolved
+          : !["Resolved", "Rejected"].includes(status),
+    lastStatusUpdateAt:
+      row.last_status_update_at || row.lastStatusUpdateAt
+        ? asISO(row.last_status_update_at ?? row.lastStatusUpdateAt)
+        : undefined,
+    lastStatusUpdateBy: row.last_status_update_by
+      ? String(row.last_status_update_by)
+      : row.lastStatusUpdateBy
+        ? String(row.lastStatusUpdateBy)
+        : undefined,
+    assignedDepartment: row.assigned_department
+      ? String(row.assigned_department)
+      : row.assignedDepartment
+        ? String(row.assignedDepartment)
+        : undefined,
+    affectedUserIds: toStringArray(row.affected_user_ids ?? row.affectedUserIds),
+    voters: normalizeVoters(row.voters),
+    duplicateOfIssueId: row.duplicate_of_issue_id
+      ? String(row.duplicate_of_issue_id)
+      : row.duplicateOfIssueId
+        ? String(row.duplicateOfIssueId)
+        : undefined,
+  };
+}
+
+function mapEventRow(row: JsonObject): IssueEvent {
+  return {
+    id: String(row.id ?? uid("evt")),
+    issueId: String(row.issue_id ?? row.issueId ?? ""),
+    type: (row.type as IssueEvent["type"]) ?? "created",
+    title: String(row.title ?? "Event"),
+    note: row.note ? String(row.note) : undefined,
+    actorId: String(row.actor_id ?? row.actorId ?? "system"),
+    actorName: String(row.actor_name ?? row.actorName ?? "System"),
+    createdAt: asISO(row.created_at ?? row.createdAt),
+  };
+}
+
+function mapCommentRow(row: JsonObject): IssueComment {
+  return {
+    id: String(row.id ?? uid("cmt")),
+    issueId: String(row.issue_id ?? row.issueId ?? ""),
+    actorId: String(row.actor_id ?? row.actorId ?? "system"),
+    actorName: String(row.actor_name ?? row.actorName ?? "System"),
+    text: String(row.text ?? ""),
+    createdAt: asISO(row.created_at ?? row.createdAt),
+  };
+}
+
+function mapNotificationRow(row: JsonObject): AppNotification {
+  return {
+    id: String(row.id ?? uid("ntf")),
+    userId: String(row.user_id ?? row.userId ?? ""),
+    title: String(row.title ?? "Notification"),
+    body: String(row.body ?? ""),
+    isRead: Boolean(row.is_read ?? row.isRead),
+    createdAt: asISO(row.created_at ?? row.createdAt),
+    issueId: row.issue_id ? String(row.issue_id) : row.issueId ? String(row.issueId) : undefined,
+  };
 }
 
 function safeStorage(): StateStorage {
@@ -147,6 +368,56 @@ function safeStorage(): StateStorage {
     };
   }
   return localStorage;
+}
+
+async function insertEvent(event: {
+  issueId: string;
+  type: IssueEvent["type"];
+  title: string;
+  note?: string;
+  actorId: string;
+  actorName: string;
+}) {
+  const { error } = await supabase.from(TABLE_ISSUE_EVENTS).insert({
+    issue_id: event.issueId,
+    type: event.type,
+    title: event.title,
+    note: event.note ?? null,
+    actor_id: event.actorId,
+    actor_name: event.actorName,
+    created_at: nowISO(),
+  });
+
+  if (error) {
+    console.warn("Issue event persistence failed", error.message);
+  }
+}
+
+async function insertNotifications(rows: Array<{
+  userId: string;
+  title: string;
+  body: string;
+  issueId?: string;
+  type?: string;
+}>) {
+  if (!rows.length) {
+    return;
+  }
+
+  const payload = rows.map((row) => ({
+    user_id: row.userId,
+    title: row.title,
+    body: row.body,
+    type: row.type ?? null,
+    issue_id: row.issueId ?? null,
+    is_read: false,
+    created_at: nowISO(),
+  }));
+
+  const { error } = await supabase.from(TABLE_NOTIFICATIONS).insert(payload);
+  if (error) {
+    console.warn("Notification persistence failed", error.message);
+  }
 }
 
 export const useAppStore = create<AppState>()(
@@ -175,137 +446,73 @@ export const useAppStore = create<AppState>()(
           return;
         }
 
+        if (!isSupabaseConfigured) {
+          console.warn(
+            "Supabase env is missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+          );
+          set({
+            initialized: true,
+            users: [],
+            issues: [],
+            events: [],
+            comments: [],
+            notifications: [],
+            departments: mockDepartments,
+            sessionUser: null,
+          });
+          return;
+        }
+
         try {
-          const [opsUsersSnap, opsDepartmentsSnap, opsIssuesSnap, eventsSnap, commentsSnap, opsNotificationsSnap] =
+          const [usersRes, departmentsRes, issuesRes, eventsRes, commentsRes, notificationsRes] =
             await Promise.all([
-              getDocs(collection(db, "ops_users")),
-              getDocs(collection(db, "ops_departments")),
-              getDocs(collection(db, "ops_issues")),
-              getDocs(collectionGroup(db, "events")),
-              getDocs(collectionGroup(db, "comments")),
-              getDocs(collection(db, "ops_notifications")),
+              supabase.from(TABLE_USERS).select("*"),
+              supabase.from(TABLE_DEPARTMENTS).select("*"),
+              supabase.from(TABLE_ISSUES).select("*").order("created_at", { ascending: false }),
+              supabase.from(TABLE_ISSUE_EVENTS).select("*").order("created_at", { ascending: false }),
+              supabase.from(TABLE_ISSUE_COMMENTS).select("*").order("created_at", { ascending: false }),
+              supabase.from(TABLE_NOTIFICATIONS).select("*").order("created_at", { ascending: false }),
             ]);
 
-          const users: TeamMember[] = opsUsersSnap.docs
-            .map((d) => {
-              const data = d.data();
-              const role = normalizeRole(data.role);
-              if (!role) {
-                return null;
-              }
-              return {
-                id: d.id,
-                fullName: String(data.fullName ?? "Unknown"),
-                email: String(data.email ?? ""),
-                role,
-                departmentId: String(data.departmentId ?? ""),
-                area: String(data.areaId ?? data.area ?? ""),
-                workload: Number(data.workload ?? 0),
-                active: data.active !== false,
-              };
-            })
+          if (usersRes.error) {
+            throw usersRes.error;
+          }
+          if (departmentsRes.error) {
+            throw departmentsRes.error;
+          }
+          if (issuesRes.error) {
+            throw issuesRes.error;
+          }
+
+          const userRows = (usersRes.data ?? []) as JsonObject[];
+          const departmentRows = (departmentsRes.data ?? []) as JsonObject[];
+          const issueRows = (issuesRes.data ?? []) as JsonObject[];
+          const eventRows = (eventsRes.data ?? []) as JsonObject[];
+          const commentRows = (commentsRes.data ?? []) as JsonObject[];
+          const notificationRows = (notificationsRes.data ?? []) as JsonObject[];
+
+          const users = userRows
+            .map((row) => mapUserRow((row ?? {}) as JsonObject))
             .filter((user): user is TeamMember => user !== null);
 
-          const departments: Department[] = opsDepartmentsSnap.docs.map((d) => {
-            const data = d.data();
-            return {
-              id: d.id,
-              code: String(data.code ?? d.id.replace(/^dept_/, "").toUpperCase()),
-              name: String(data.name ?? d.id),
-            };
-          });
+          const departments =
+            departmentRows.length > 0
+              ? departmentRows.map((row) => mapDepartmentRow((row ?? {}) as JsonObject))
+              : mockDepartments;
 
-          const issues: IssueRecord[] = opsIssuesSnap.docs.map((d) => {
-            const data = d.data();
-            return {
-              id: d.id,
-              title: String(data.title ?? "Civic issue report"),
-              description: String(data.description ?? ""),
-              category: String(data.category ?? "General"),
-              urgency: (data.urgency as IssueRecord["urgency"]) ?? "Medium",
-              status: normalizeStatus(data.status),
-              area: String(data.area ?? ""),
-              assignedDepartmentId: String(data.assignedDepartmentId ?? ""),
-              assignedToId:
-                typeof data.assignedToId === "string" && data.assignedToId
-                  ? data.assignedToId
-                  : undefined,
-              reporterName: String(data.reporterName ?? "Citizen"),
-              createdAt: asISO(data.createdAt),
-              dueAt: asISO(data.dueAt),
-              affectedUsersCount: Number(data.affectedUsersCount ?? 0),
-              tags: Array.isArray(data.tags) ? data.tags : [],
-              imageUrl: String(data.imageUrl ?? ""),
-              locationAddress: String(data.locationAddress ?? ""),
-              lat: Number(data.lat ?? 0),
-              lng: Number(data.lng ?? 0),
-              userId: data.userId,
-              username: data.username,
-              upvotes: Number(data.upvotes ?? 0),
-              downvotes: Number(data.downvotes ?? 0),
-              commentsCount: Number(data.commentsCount ?? 0),
-              isUnresolved:
-                typeof data.isUnresolved === "boolean"
-                  ? data.isUnresolved
-                  : !["Resolved", "Rejected"].includes(normalizeStatus(data.status)),
-              lastStatusUpdateAt: data.lastStatusUpdateAt
-                ? asISO(data.lastStatusUpdateAt)
-                : undefined,
-              lastStatusUpdateBy: data.lastStatusUpdateBy,
-              assignedDepartment: data.assignedDepartment,
-              affectedUserIds: Array.isArray(data.affectedUserIds)
-                ? data.affectedUserIds
-                : [],
-              voters:
-                data.voters && typeof data.voters === "object" ? data.voters : {},
-              duplicateOfIssueId: data.duplicateOfIssueId,
-            };
-          });
+          const issues = issueRows.map((row) => mapIssueRow((row ?? {}) as JsonObject));
 
-          const events: IssueEvent[] = eventsSnap.docs.map((d) => {
-            const data = d.data();
-            return {
-              id: d.id,
-              issueId:
-                typeof data.issueId === "string"
-                  ? data.issueId
-                  : d.ref.parent.parent?.id ?? "",
-              type: (data.type as IssueEvent["type"]) ?? "created",
-              title: String(data.title ?? "Event"),
-              note: data.note,
-              actorId: String(data.actorId ?? "system"),
-              actorName: String(data.actorName ?? "System"),
-              createdAt: asISO(data.createdAt),
-            };
-          });
+          const events = eventsRes.error
+            ? []
+            : eventRows.map((row) => mapEventRow((row ?? {}) as JsonObject));
 
-          const comments: IssueComment[] = commentsSnap.docs.map((d) => {
-            const data = d.data();
-            return {
-              id: d.id,
-              issueId:
-                typeof data.issueId === "string"
-                  ? data.issueId
-                  : d.ref.parent.parent?.id ?? "",
-              actorId: String(data.actorId ?? "system"),
-              actorName: String(data.actorName ?? "System"),
-              text: String(data.text ?? ""),
-              createdAt: asISO(data.createdAt),
-            };
-          });
+          const comments = commentsRes.error
+            ? []
+            : commentRows.map((row) => mapCommentRow((row ?? {}) as JsonObject));
 
-          const notifications: AppNotification[] = opsNotificationsSnap.docs.map((d) => {
-            const data = d.data();
-            return {
-              id: d.id,
-              userId: String(data.userId ?? ""),
-              title: String(data.title ?? "Notification"),
-              body: String(data.body ?? ""),
-              isRead: Boolean(data.isRead),
-              createdAt: asISO(data.createdAt),
-              issueId: data.issueId,
-            };
-          });
+          const notifications = notificationsRes.error
+            ? []
+            : notificationRows.map((row) => mapNotificationRow((row ?? {}) as JsonObject));
 
           const currentSessionId = get().sessionUser?.id;
           const nextSession = currentSessionId
@@ -323,7 +530,7 @@ export const useAppStore = create<AppState>()(
             sessionUser: nextSession,
           });
         } catch (error) {
-          console.error("Failed to load Firestore ops data.", error);
+          console.error("Failed to load Supabase ops data.", error);
           set({
             initialized: true,
             users: [],
@@ -344,7 +551,6 @@ export const useAppStore = create<AppState>()(
           ? new Date(state.floodRiskUpdatedAt).getTime()
           : 0;
 
-        // Avoid excessive API calls while allowing periodic refresh.
         if (state.floodRiskLoading || (lastUpdated && now - lastUpdated < 15 * 60 * 1000)) {
           return;
         }
@@ -528,7 +734,8 @@ export const useAppStore = create<AppState>()(
         }
 
         const nextStatus: IssueStatus =
-          targetIssue.status === "Reported" && actor.role === "department_head"
+          targetIssue.status === "Reported" &&
+          (actor.role === "zonal_officer" || actor.role === "commissioner")
             ? "Acknowledged"
             : targetIssue.status;
 
@@ -571,46 +778,39 @@ export const useAppStore = create<AppState>()(
         });
 
         void (async () => {
-          const issueRef = doc(db, "ops_issues", issueId);
-          await setDoc(
-            issueRef,
-            {
-              assignedToId: assigneeId,
-              assignedToRole: assignee.role,
+          const { error } = await supabase
+            .from(TABLE_ISSUES)
+            .update({
+              assigned_to_id: assigneeId,
+              assigned_department_id: targetIssue.assignedDepartmentId,
               status: nextStatus,
-              lastStatusUpdateAt: serverTimestamp(),
-              lastStatusUpdateBy: actor.fullName,
-            },
-            { merge: true },
-          );
+              last_status_update_at: nowISO(),
+              last_status_update_by: actor.fullName,
+              updated_at: nowISO(),
+            })
+            .eq("id", issueId);
 
-          await setDoc(
-            doc(collection(issueRef, "events")),
-            {
-              issueId,
-              type: "assignment",
-              title: `Assigned to ${assignee.fullName}`,
-              note: null,
-              actorId,
-              actorName: actor.fullName,
-              createdAt: serverTimestamp(),
-            },
-            { merge: true },
-          );
+          if (error) {
+            throw error;
+          }
 
-          await setDoc(
-            doc(db, "ops_notifications", uid("ntf")),
+          await insertEvent({
+            issueId,
+            type: "assignment",
+            title: `Assigned to ${assignee.fullName}`,
+            actorId,
+            actorName: actor.fullName,
+          });
+
+          await insertNotifications([
             {
               userId: assigneeId,
               title: "New assignment",
               body: `${issueId} has been assigned to you.`,
-              type: "assignment",
               issueId,
-              isRead: false,
-              createdAt: serverTimestamp(),
+              type: "assignment",
             },
-            { merge: true },
-          );
+          ]);
         })().catch((error) => {
           console.error("Failed to persist assignment update", error);
         });
@@ -635,19 +835,28 @@ export const useAppStore = create<AppState>()(
         const targetDepartment = state.departments.find(
           (d) => d.id === targetDepartmentId,
         );
-        const targetHeads = state.users.filter(
-          (u) => u.role === "department_head" && u.departmentId === targetDepartmentId,
+
+        const targetHandlers = state.users.filter(
+          (u) =>
+            u.departmentId === targetDepartmentId &&
+            u.active &&
+            (u.role === "zonal_officer" || u.role === "department_head"),
         );
 
-        const rerouteNotifications = targetHeads.map((head) => ({
+        const rerouteNotifications = targetHandlers.map((handler) => ({
           id: uid("ntf"),
-          userId: head.id,
+          userId: handler.id,
           title: "Issue rerouted to your department",
-          body: `${issueId} was rerouted by ${actor.fullName}. Please assign it to a JE.`,
+          body: `${issueId} was rerouted by ${actor.fullName}. Please route it in your zone workflow.`,
           isRead: false,
           issueId,
           createdAt: nowISO(),
         }));
+
+        const nextStatus =
+          targetIssue.status === "Resolved" || targetIssue.status === "Rejected"
+            ? targetIssue.status
+            : "Reported";
 
         set({
           issues: state.issues.map((issue) =>
@@ -657,10 +866,7 @@ export const useAppStore = create<AppState>()(
                   assignedDepartmentId: targetDepartmentId,
                   assignedDepartment: targetDepartment?.name,
                   assignedToId: undefined,
-                  status:
-                    issue.status === "Resolved" || issue.status === "Rejected"
-                      ? issue.status
-                      : "Reported",
+                  status: nextStatus,
                   lastStatusUpdateAt: nowISO(),
                   lastStatusUpdateBy: actor.fullName,
                 }
@@ -683,55 +889,41 @@ export const useAppStore = create<AppState>()(
         });
 
         void (async () => {
-          const issueRef = doc(db, "ops_issues", issueId);
-          await setDoc(
-            issueRef,
-            {
-              assignedDepartmentId: targetDepartmentId,
-              assignedDepartment: targetDepartment?.name ?? null,
-              assignedToId: null,
-              assignedToRole: null,
-              status:
-                targetIssue.status === "Resolved" || targetIssue.status === "Rejected"
-                  ? targetIssue.status
-                  : "Reported",
-              reroutedAt: serverTimestamp(),
-              reroutedBy: actor.fullName,
-              lastStatusUpdateAt: serverTimestamp(),
-              lastStatusUpdateBy: actor.fullName,
-            },
-            { merge: true },
-          );
+          const { error } = await supabase
+            .from(TABLE_ISSUES)
+            .update({
+              assigned_department_id: targetDepartmentId,
+              assigned_department: targetDepartment?.name ?? null,
+              assigned_to_id: null,
+              status: nextStatus,
+              last_status_update_at: nowISO(),
+              last_status_update_by: actor.fullName,
+              updated_at: nowISO(),
+            })
+            .eq("id", issueId);
 
-          await setDoc(
-            doc(collection(issueRef, "events")),
-            {
+          if (error) {
+            throw error;
+          }
+
+          await insertEvent({
+            issueId,
+            type: "reroute",
+            title: `Rerouted to ${targetDepartment?.name ?? targetDepartmentId}`,
+            note,
+            actorId,
+            actorName: actor.fullName,
+          });
+
+          await insertNotifications(
+            targetHandlers.map((handler) => ({
+              userId: handler.id,
+              title: "Issue rerouted to your department",
+              body: `${issueId} was rerouted by ${actor.fullName}. Please route it in your zone workflow.`,
               issueId,
               type: "reroute",
-              title: `Rerouted to ${targetDepartment?.name ?? targetDepartmentId}`,
-              note: note ?? null,
-              actorId,
-              actorName: actor.fullName,
-              createdAt: serverTimestamp(),
-            },
-            { merge: true },
+            })),
           );
-
-          if (targetHeads.length) {
-            const batch = writeBatch(db);
-            for (const head of targetHeads) {
-              batch.set(doc(db, "ops_notifications", uid("ntf")), {
-                userId: head.id,
-                title: "Issue rerouted to your department",
-                body: `${issueId} was rerouted by ${actor.fullName}. Please assign it to a JE.`,
-                type: "reroute",
-                issueId,
-                isRead: false,
-                createdAt: serverTimestamp(),
-              });
-            }
-            await batch.commit();
-          }
         })().catch((error) => {
           console.error("Failed to persist reroute update", error);
         });
@@ -773,6 +965,7 @@ export const useAppStore = create<AppState>()(
               ? {
                   ...issue,
                   status,
+                  isUnresolved: status !== "Resolved" && status !== "Rejected",
                   lastStatusUpdateAt: nowISO(),
                   lastStatusUpdateBy: actor.fullName,
                 }
@@ -795,41 +988,41 @@ export const useAppStore = create<AppState>()(
         });
 
         void (async () => {
-          const issueRef = doc(db, "ops_issues", issueId);
-          await setDoc(
-            issueRef,
-            {
+          const { error } = await supabase
+            .from(TABLE_ISSUES)
+            .update({
               status,
-              lastStatusUpdateAt: serverTimestamp(),
-              lastStatusUpdateBy: actor.fullName,
-            },
-            { merge: true },
-          );
+              is_unresolved: status !== "Resolved" && status !== "Rejected",
+              resolution_timestamp: status === "Resolved" ? nowISO() : null,
+              last_status_update_at: nowISO(),
+              last_status_update_by: actor.fullName,
+              updated_at: nowISO(),
+            })
+            .eq("id", issueId);
 
-          await setDoc(
-            doc(collection(issueRef, "events")),
-            {
-              issueId,
-              type: "status_change",
-              title: `Status changed to ${status}`,
-              note: note || null,
-              actorId,
-              actorName: actor.fullName,
-              createdAt: serverTimestamp(),
-            },
-            { merge: true },
-          );
+          if (error) {
+            throw error;
+          }
+
+          await insertEvent({
+            issueId,
+            type: "status_change",
+            title: `Status changed to ${status}`,
+            note,
+            actorId,
+            actorName: actor.fullName,
+          });
 
           if (targetIssue.assignedToId) {
-            await addDoc(collection(db, "ops_notifications"), {
-              userId: targetIssue.assignedToId,
-              title: `Status changed: ${status}`,
-              body: `${issueId} moved to ${status}.`,
-              type: "status_change",
-              issueId,
-              isRead: false,
-              createdAt: serverTimestamp(),
-            });
+            await insertNotifications([
+              {
+                userId: targetIssue.assignedToId,
+                title: `Status changed: ${status}`,
+                body: `${issueId} moved to ${status}.`,
+                issueId,
+                type: "status_change",
+              },
+            ]);
           }
         })().catch((error) => {
           console.error("Failed to persist status update", error);
@@ -844,6 +1037,8 @@ export const useAppStore = create<AppState>()(
         }
 
         const cleanText = text.trim();
+        const issue = state.issues.find((item) => item.id === issueId);
+        const nextCommentsCount = Number(issue?.commentsCount ?? 0) + 1;
 
         set({
           comments: [
@@ -870,35 +1065,41 @@ export const useAppStore = create<AppState>()(
             },
             ...state.events,
           ],
+          issues: state.issues.map((item) =>
+            item.id === issueId ? { ...item, commentsCount: nextCommentsCount } : item,
+          ),
         });
 
         void (async () => {
-          const issueRef = doc(db, "ops_issues", issueId);
-          await addDoc(collection(issueRef, "comments"), {
-            issueId,
-            actorId,
-            actorName: actor.fullName,
+          const { error: commentError } = await supabase.from(TABLE_ISSUE_COMMENTS).insert({
+            issue_id: issueId,
+            actor_id: actorId,
+            actor_name: actor.fullName,
             text: cleanText,
-            createdAt: serverTimestamp(),
+            created_at: nowISO(),
           });
 
-          await addDoc(collection(issueRef, "events"), {
+          if (commentError) {
+            console.warn("Comment persistence failed", commentError.message);
+          }
+
+          await insertEvent({
             issueId,
             type: "comment",
             title: "Comment added",
             note: cleanText,
             actorId,
             actorName: actor.fullName,
-            createdAt: serverTimestamp(),
           });
 
-          await setDoc(
-            issueRef,
-            {
-              commentsCount: increment(1),
-            },
-            { merge: true },
-          );
+          const { error: issueError } = await supabase
+            .from(TABLE_ISSUES)
+            .update({ comments_count: nextCommentsCount, updated_at: nowISO() })
+            .eq("id", issueId);
+
+          if (issueError) {
+            console.warn("Issue comment count update failed", issueError.message);
+          }
         })().catch((error) => {
           console.error("Failed to persist comment", error);
         });
@@ -911,13 +1112,16 @@ export const useAppStore = create<AppState>()(
           ),
         }));
 
-        void setDoc(
-          doc(db, "ops_notifications", notificationId),
-          { isRead: true },
-          { merge: true },
-        ).catch((error) => {
-          console.error("Failed to mark notification as read", error);
-        });
+        void (async () => {
+          const { error } = await supabase
+            .from(TABLE_NOTIFICATIONS)
+            .update({ is_read: true })
+            .eq("id", notificationId);
+
+            if (error) {
+              console.error("Failed to mark notification as read", error);
+            }
+        })();
       },
     }),
     {

@@ -1,46 +1,90 @@
 [
   {
-    "id": "zone-rne-001",
-    "area": "Raj Nagar Extension",
-    "wardCode": "WARD-12",
-    "drainageZone": "DZ-North-2",
-    "lat": 28.6996,
-    "lng": 77.4408,
-    "severityWeight": 0.82,
-    "historicalFloodCount": 11,
-    "targetDepartmentId": "dept_sanitation"
-  },
-  {
-    "id": "zone-rkgit-002",
-    "area": "RKGIT Belt",
-    "wardCode": "WARD-14",
-    "drainageZone": "DZ-North-3",
-    "lat": 28.7004,
-    "lng": 77.4412,
-    "severityWeight": 0.76,
-    "historicalFloodCount": 8,
-    "targetDepartmentId": "dept_public_works"
-  },
-  {
-    "id": "zone-sector3-003",
-    "area": "Sector-3 Ghaziabad",
-    "wardCode": "WARD-09",
+    "id": "dl-minto-001",
+    "area": "Minto Bridge Underpass",
+    "wardCode": "WARD-NDMC-09",
     "drainageZone": "DZ-Central-1",
-    "lat": 28.6692,
-    "lng": 77.4538,
-    "severityWeight": 0.69,
-    "historicalFloodCount": 6,
-    "targetDepartmentId": "dept_sanitation"
+    "lat": 28.6351,
+    "lng": 77.2197,
+    "severityWeight": 0.93,
+    "historicalFloodCount": 23,
+    "targetDepartmentId": "dept-6"
   },
   {
-    "id": "zone-ghz-east-004",
-    "area": "Ghaziabad East Corridor",
-    "wardCode": "WARD-21",
+    "id": "dl-ito-002",
+    "area": "ITO Junction",
+    "wardCode": "WARD-CN-17",
+    "drainageZone": "DZ-Central-2",
+    "lat": 28.6285,
+    "lng": 77.241,
+    "severityWeight": 0.91,
+    "historicalFloodCount": 21,
+    "targetDepartmentId": "dept-6"
+  },
+  {
+    "id": "dl-ringrd-003",
+    "area": "Ring Road - IP Flyover Stretch",
+    "wardCode": "WARD-EAST-04",
     "drainageZone": "DZ-East-1",
-    "lat": 28.6835,
-    "lng": 77.4661,
-    "severityWeight": 0.73,
-    "historicalFloodCount": 7,
-    "targetDepartmentId": "dept_public_works"
+    "lat": 28.6246,
+    "lng": 77.2559,
+    "severityWeight": 0.86,
+    "historicalFloodCount": 17,
+    "targetDepartmentId": "dept-4"
+  },
+  {
+    "id": "dl-yamunabazar-004",
+    "area": "Yamuna Bazar - ISBT Belt",
+    "wardCode": "WARD-NORTH-07",
+    "drainageZone": "DZ-River-1",
+    "lat": 28.6689,
+    "lng": 77.2292,
+    "severityWeight": 0.88,
+    "historicalFloodCount": 18,
+    "targetDepartmentId": "dept-6"
+  },
+  {
+    "id": "dl-lajpat-005",
+    "area": "Lajpat Nagar Central Market Approach",
+    "wardCode": "WARD-SOUTH-11",
+    "drainageZone": "DZ-South-2",
+    "lat": 28.5677,
+    "lng": 77.2431,
+    "severityWeight": 0.79,
+    "historicalFloodCount": 12,
+    "targetDepartmentId": "dept-6"
+  },
+  {
+    "id": "dl-najafgarh-006",
+    "area": "Najafgarh Drain Corridor",
+    "wardCode": "WARD-SW-03",
+    "drainageZone": "DZ-SW-Drain-1",
+    "lat": 28.6111,
+    "lng": 76.9904,
+    "severityWeight": 0.9,
+    "historicalFloodCount": 20,
+    "targetDepartmentId": "dept-2"
+  },
+  {
+    "id": "dl-jahangirpuri-007",
+    "area": "Jahangirpuri A-Block Belt",
+    "wardCode": "WARD-NW-06",
+    "drainageZone": "DZ-NW-2",
+    "lat": 28.7282,
+    "lng": 77.1631,
+    "severityWeight": 0.74,
+    "historicalFloodCount": 10,
+    "targetDepartmentId": "dept-6"
+  },
+  {
+    "id": "dl-rohini-008",
+    "area": "Rohini Sector 15-16 Cut",
+    "wardCode": "WARD-NW-11",
+    "drainageZone": "DZ-NW-4",
+    "lat": 28.7422,
+    "lng": 77.1168,
+    "severityWeight": 0.72,
+    "historicalFloodCount": 9,
+    "targetDepartmentId": "dept-4"
   }
 ]

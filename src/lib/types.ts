@@ -1,4 +1,8 @@
-export type Role = "super_admin" | "department_head" | "engineer";
+export type Role =
+  | "commissioner"
+  | "department_head"
+  | "zonal_officer"
+  | "engineer";
 
 export type IssueStatus =
   | "Reported"
@@ -13,6 +17,8 @@ export interface Department {
   id: string;
   code: string;
   name: string;
+  description?: string;
+  createdAt?: string;
 }
 
 export interface TeamMember {
@@ -22,6 +28,7 @@ export interface TeamMember {
   role: Role;
   departmentId: string;
   area: string;
+  zoneId?: string;
   workload: number;
   active: boolean;
 }
@@ -69,6 +76,7 @@ export interface IssueRecord {
   tags: string[];
   imageUrl: string;
   locationAddress: string;
+  zoneId?: string;
   lat: number;
   lng: number;
   userId?: string;

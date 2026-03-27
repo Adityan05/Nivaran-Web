@@ -1,9 +1,38 @@
 import { IssueRecord, IssueStatus, Role, TeamMember } from "@/lib/types";
+import { inferZoneId, isSameZone } from "@/lib/zones";
 
 type SessionUser = TeamMember | null;
 
 function isPrivileged(user: SessionUser): boolean {
-  return user?.role === "super_admin";
+  return user?.role === "commissioner";
+}
+
+function normalizeText(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function getIssueZoneId(issue: IssueRecord): string | undefined {
+  return inferZoneId({
+    explicitZoneId: issue.zoneId,
+    area: issue.area || issue.locationAddress,
+    lat: issue.lat,
+    lng: issue.lng,
+  });
+}
+
+function isInUserZone(user: TeamMember, issue: IssueRecord): boolean {
+  const issueZoneId = getIssueZoneId(issue);
+  if (user.zoneId && issueZoneId) {
+    return isSameZone(user.zoneId, issueZoneId);
+  }
+  if (user.area && issue.area) {
+    return normalizeText(user.area) === normalizeText(issue.area);
+  }
+  return false;
+}
+
+function isDirectlyAssignedToUser(user: TeamMember, issue: IssueRecord): boolean {
+  return issue.assignedToId === user.id;
 }
 
 export function canViewAllIssues(user: SessionUser): boolean {
@@ -14,20 +43,33 @@ export function canViewBoard(user: SessionUser): boolean {
   if (!user) {
     return false;
   }
-  return user.role === "super_admin" || user.role === "department_head";
+  return (
+    user.role === "commissioner" ||
+    user.role === "department_head" ||
+    user.role === "zonal_officer"
+  );
 }
 
 export function canAssignIssue(user: SessionUser, issue: IssueRecord): boolean {
   if (!user) {
     return false;
   }
-  if (issue.status === "Resolved") {
+  if (issue.status === "Resolved" || issue.status === "Rejected") {
     return false;
   }
-  if (user.role === "super_admin") {
+  if (user.role === "commissioner") {
     return true;
   }
-  return user.role === "department_head" && user.departmentId === issue.assignedDepartmentId;
+
+  if (user.role === "zonal_officer" && isDirectlyAssignedToUser(user, issue)) {
+    return true;
+  }
+
+  return (
+    user.role === "zonal_officer" &&
+    user.departmentId === issue.assignedDepartmentId &&
+    isInUserZone(user, issue)
+  );
 }
 
 export function canAssignToUser(
@@ -42,18 +84,37 @@ export function canAssignToUser(
     return false;
   }
 
-  if (user.role === "super_admin") {
-    return (
-      assignee.role === "department_head" &&
-      assignee.departmentId === issue.assignedDepartmentId
-    );
+  if (user.role === "commissioner") {
+    if (assignee.departmentId !== issue.assignedDepartmentId) {
+      return false;
+    }
+
+    if (assignee.role === "zonal_officer") {
+      return true;
+    }
+
+    if (assignee.role === "engineer") {
+      const issueZoneId = getIssueZoneId(issue);
+      if (!issueZoneId || !assignee.zoneId) {
+        return true;
+      }
+      return issueZoneId === assignee.zoneId;
+    }
+
+    return false;
   }
 
-  if (user.role === "department_head") {
+  if (user.role === "zonal_officer") {
+    const issueZoneId = getIssueZoneId(issue);
+    if (!issueZoneId || !user.zoneId || issueZoneId !== user.zoneId) {
+      return false;
+    }
+
     return (
       assignee.role === "engineer" &&
       assignee.departmentId === user.departmentId &&
-      assignee.departmentId === issue.assignedDepartmentId
+      assignee.departmentId === issue.assignedDepartmentId &&
+      assignee.zoneId === user.zoneId
     );
   }
 
@@ -64,13 +125,22 @@ export function canRerouteIssue(user: SessionUser, issue: IssueRecord): boolean 
   if (!user) {
     return false;
   }
-  if (issue.status === "Resolved") {
+  if (issue.status === "Resolved" || issue.status === "Rejected") {
     return false;
   }
-  if (user.role === "super_admin") {
+  if (user.role === "commissioner") {
     return true;
   }
-  return user.role === "department_head" && user.departmentId === issue.assignedDepartmentId;
+
+  if (user.role === "zonal_officer" && isDirectlyAssignedToUser(user, issue)) {
+    return true;
+  }
+
+  return (
+    user.role === "zonal_officer" &&
+    user.departmentId === issue.assignedDepartmentId &&
+    isInUserZone(user, issue)
+  );
 }
 
 export function canUpdateIssueStatus(
@@ -80,7 +150,7 @@ export function canUpdateIssueStatus(
   if (!user) {
     return false;
   }
-  if (user.role === "super_admin") {
+  if (user.role === "commissioner") {
     return true;
   }
 
@@ -88,8 +158,15 @@ export function canUpdateIssueStatus(
     return issue.assignedToId === user.id;
   }
 
-  if (user.role === "department_head") {
-    return user.departmentId === issue.assignedDepartmentId;
+  if (user.role === "zonal_officer") {
+    if (isDirectlyAssignedToUser(user, issue)) {
+      return true;
+    }
+
+    return (
+      user.departmentId === issue.assignedDepartmentId &&
+      isInUserZone(user, issue)
+    );
   }
 
   return false;
@@ -110,6 +187,10 @@ export function getAllowedStatusTransitions(
     return ["Resolved"];
   }
 
+  if (user?.role === "department_head") {
+    return [];
+  }
+
   switch (issue.status) {
     case "Reported":
       return ["Acknowledged", "Rejected"];
@@ -126,7 +207,7 @@ export function canAccessIssue(user: SessionUser, issue: IssueRecord): boolean {
   if (!user) {
     return false;
   }
-  if (user.role === "super_admin") {
+  if (user.role === "commissioner") {
     return true;
   }
   if (user.role === "engineer") {
@@ -134,6 +215,16 @@ export function canAccessIssue(user: SessionUser, issue: IssueRecord): boolean {
   }
   if (user.role === "department_head") {
     return issue.assignedDepartmentId === user.departmentId;
+  }
+  if (user.role === "zonal_officer") {
+    if (isDirectlyAssignedToUser(user, issue)) {
+      return true;
+    }
+
+    return (
+      issue.assignedDepartmentId === user.departmentId &&
+      isInUserZone(user, issue)
+    );
   }
   return false;
 }
@@ -158,18 +249,33 @@ export function getVisibleUsers(
   if (!user) {
     return [];
   }
-  if (user.role === "super_admin") {
+  if (user.role === "commissioner") {
     return users;
   }
   if (user.role === "engineer") {
     return users.filter((u) => u.id === user.id);
   }
+
+  if (user.role === "zonal_officer") {
+    return users.filter(
+      (u) =>
+        u.id === user.id ||
+        (u.role === "engineer" &&
+          u.departmentId === user.departmentId &&
+          u.zoneId === user.zoneId),
+    );
+  }
+
   return users.filter((u) => u.departmentId === user.departmentId);
 }
 
 export function canAccessRoute(pathname: string, role: Role): boolean {
   if (pathname.startsWith("/board")) {
-    return role === "super_admin" || role === "department_head";
+    return (
+      role === "commissioner" ||
+      role === "department_head" ||
+      role === "zonal_officer"
+    );
   }
 
   return true;

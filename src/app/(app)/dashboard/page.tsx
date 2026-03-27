@@ -31,19 +31,19 @@ export default function DashboardPage() {
   const liveOpsStatusSummary = useAppStore((s) => s.liveOpsStatusSummary);
   const liveOpsStatusLoading = useAppStore((s) => s.liveOpsStatusLoading);
   const refreshLiveOpsStatus = useAppStore((s) => s.refreshLiveOpsStatus);
-  const isSuperAdmin = sessionUser?.role === "super_admin";
+  const isCommissioner = sessionUser?.role === "commissioner";
   const visibleIssues = useMemo(
     () => getVisibleIssues(issues, sessionUser),
     [issues, sessionUser],
   );
 
   useEffect(() => {
-    if (!isSuperAdmin) {
+    if (!isCommissioner) {
       return;
     }
     void refreshFloodRiskAlerts(issues);
     void refreshLiveOpsStatus(issues);
-  }, [isSuperAdmin, issues, refreshFloodRiskAlerts, refreshLiveOpsStatus]);
+  }, [isCommissioner, issues, refreshFloodRiskAlerts, refreshLiveOpsStatus]);
 
   const stats = useMemo(() => {
     const openIssues = visibleIssues.filter(
@@ -83,6 +83,30 @@ export default function DashboardPage() {
       count,
     }));
   }, [visibleIssues]);
+
+  const sortedFloodRiskAlerts = useMemo(() => {
+    const riskWeight: Record<string, number> = {
+      Critical: 4,
+      High: 3,
+      Moderate: 2,
+      Low: 1,
+    };
+
+    return [...floodRiskAlerts].sort((a, b) => {
+      const byRisk =
+        (riskWeight[b.riskLevel] ?? 0) - (riskWeight[a.riskLevel] ?? 0);
+      if (byRisk !== 0) {
+        return byRisk;
+      }
+      return b.expectedRainMm - a.expectedRainMm;
+    });
+  }, [floodRiskAlerts]);
+
+  const visibleFloodRiskAlerts = sortedFloodRiskAlerts.slice(0, 4);
+  const hiddenFloodRiskAlerts = Math.max(
+    0,
+    sortedFloodRiskAlerts.length - visibleFloodRiskAlerts.length,
+  );
 
   const pieColors = ["#0f172a", "#334155", "#0369a1", "#1d4ed8", "#475569"];
 
@@ -231,7 +255,7 @@ export default function DashboardPage() {
         </article>
       </section>
 
-      {isSuperAdmin ? (
+      {isCommissioner ? (
         <section className="ui-card border-sky-300/45 bg-gradient-to-b from-sky-50/90 to-white p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -257,7 +281,7 @@ export default function DashboardPage() {
         </section>
       ) : null}
 
-      {isSuperAdmin ? (
+      {isCommissioner ? (
         <section className="ui-card border-amber-300/50 bg-gradient-to-b from-amber-50/95 to-rose-50/65 p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -283,33 +307,45 @@ export default function DashboardPage() {
             </p>
           ) : null}
 
-          {floodRiskAlerts.length > 0 ? (
-            <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              {floodRiskAlerts.map((alert) => (
+          {sortedFloodRiskAlerts.length > 0 ? (
+            <div className="mt-3 space-y-2.5">
+              {visibleFloodRiskAlerts.map((alert) => (
                 <article
                   key={alert.id}
-                  className="rounded-xl border border-amber-300/40 bg-white/75 p-3"
+                  className="rounded-xl border border-amber-300/40 bg-white/80 p-3"
                 >
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    {alert.riskLevel} risk
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">
-                    {alert.area}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-700">{alert.warning}</p>
-                  <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-                    <CloudRain size={12} />
-                    {alert.expectedRainMm} mm forecast on{" "}
-                    {new Date(alert.expectedDate).toLocaleDateString("en-IN", {
-                      day: "numeric",
-                      month: "short",
-                    })}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        {alert.riskLevel} risk
+                      </p>
+                      <p className="mt-0.5 text-sm font-semibold text-slate-900">
+                        {alert.area}
+                      </p>
+                    </div>
                     <span className="rounded-full border border-slate-300/55 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
                       Confidence {(alert.confidenceScore * 100).toFixed(0)}%
                     </span>
-                    {alert.sourceTags.map((tag) => (
+                  </div>
+
+                  <p className="mt-1.5 text-sm text-slate-700">
+                    {alert.warning}
+                  </p>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
+                    <span className="inline-flex items-center gap-1.5">
+                      <CloudRain size={12} />
+                      {alert.expectedRainMm} mm on{" "}
+                      {new Date(alert.expectedDate).toLocaleDateString(
+                        "en-IN",
+                        {
+                          day: "numeric",
+                          month: "short",
+                        },
+                      )}
+                    </span>
+
+                    {alert.sourceTags.slice(0, 2).map((tag) => (
                       <span
                         key={`${alert.id}-${tag}`}
                         className="rounded-full border border-slate-300/55 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600"
@@ -317,9 +353,22 @@ export default function DashboardPage() {
                         {tag.replace("_", " ")}
                       </span>
                     ))}
+
+                    {alert.sourceTags.length > 2 ? (
+                      <span className="rounded-full border border-slate-300/55 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+                        +{alert.sourceTags.length - 2} more
+                      </span>
+                    ) : null}
                   </div>
                 </article>
               ))}
+
+              {hiddenFloodRiskAlerts > 0 ? (
+                <p className="text-xs font-semibold text-slate-600">
+                  +{hiddenFloodRiskAlerts} more risk zones hidden to keep this
+                  panel readable. View full details on the map layer.
+                </p>
+              ) : null}
             </div>
           ) : !floodRiskLoading ? (
             <p className="mt-3 text-sm text-slate-600">
