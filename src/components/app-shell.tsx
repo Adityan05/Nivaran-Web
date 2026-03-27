@@ -59,7 +59,7 @@ export default function AppShell({ children }: AppShellProps) {
   );
 
   const departmentName = useMemo(() => {
-    if (!sessionUser || sessionUser.role !== "department_head") {
+    if (!sessionUser || sessionUser.role === "commissioner") {
       return null;
     }
     return (

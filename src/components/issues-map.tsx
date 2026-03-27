@@ -2,8 +2,14 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { GoogleMap, OverlayView, useJsApiLoader } from "@react-google-maps/api";
+import {
+  GoogleMap,
+  OverlayView,
+  Polyline,
+  useJsApiLoader,
+} from "@react-google-maps/api";
 import { FloodRiskAlert, IssueRecord } from "@/lib/types";
+import { delhiZones, inferZoneId } from "@/lib/zones";
 
 interface IssuesMapProps {
   issues: IssueRecord[];
@@ -50,9 +56,85 @@ export default function IssuesMap({
   const [showIssueMarkers, setShowIssueMarkers] = useState(true);
   const [showRiskLayer, setShowRiskLayer] = useState(true);
   const [showUnassignedHotspots, setShowUnassignedHotspots] = useState(true);
+  const [showZonesLayer, setShowZonesLayer] = useState(true);
+  const [showZoneIssueLinks, setShowZoneIssueLinks] = useState(true);
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "",
   });
+
+  const zoneColorById = useMemo(() => {
+    const palette = [
+      "#e11d48",
+      "#f97316",
+      "#f59e0b",
+      "#84cc16",
+      "#22c55e",
+      "#10b981",
+      "#14b8a6",
+      "#06b6d4",
+      "#0ea5e9",
+      "#3b82f6",
+      "#6366f1",
+      "#8b5cf6",
+      "#ec4899",
+    ];
+    const map = new Map<string, string>();
+    delhiZones.forEach((zone, index) => {
+      map.set(zone.id, palette[index % palette.length]);
+    });
+    return map;
+  }, []);
+
+  const zoneIssueData = useMemo(() => {
+    const zoneById = new Map(delhiZones.map((zone) => [zone.id, zone]));
+    const unresolvedCountByZone = new Map<string, number>();
+    const issueLinks: Array<{
+      zoneId: string;
+      zoneLat: number;
+      zoneLng: number;
+      issueLat: number;
+      issueLng: number;
+    }> = [];
+
+    for (const issue of issues) {
+      const zoneId = inferZoneId({
+        explicitZoneId: issue.zoneId,
+        area: issue.area || issue.locationAddress,
+        lat: issue.lat,
+        lng: issue.lng,
+      });
+      if (!zoneId) {
+        continue;
+      }
+
+      const zone = zoneById.get(zoneId);
+      if (!zone) {
+        continue;
+      }
+
+      const isUnresolved =
+        issue.status !== "Resolved" && issue.status !== "Rejected";
+      if (isUnresolved) {
+        unresolvedCountByZone.set(
+          zoneId,
+          (unresolvedCountByZone.get(zoneId) ?? 0) + 1,
+        );
+      }
+
+      issueLinks.push({
+        zoneId,
+        zoneLat: zone.lat,
+        zoneLng: zone.lng,
+        issueLat: issue.lat,
+        issueLng: issue.lng,
+      });
+    }
+
+    return {
+      unresolvedCountByZone,
+      issueLinks,
+    };
+  }, [issues]);
 
   const riskLevelClass: Record<FloodRiskAlert["riskLevel"], string> = {
     Low: "border-emerald-400/70 bg-emerald-300/15",
@@ -114,6 +196,11 @@ export default function IssuesMap({
         points.push({ lat: hotspot.lat, lng: hotspot.lng });
       }
     }
+    if (showZonesLayer) {
+      for (const zone of delhiZones) {
+        points.push({ lat: zone.lat, lng: zone.lng });
+      }
+    }
     return points;
   }, [
     showIssueMarkers,
@@ -122,6 +209,7 @@ export default function IssuesMap({
     floodRiskAlerts,
     showUnassignedHotspots,
     unassignedHotspots,
+    showZonesLayer,
   ]);
 
   const onMapLoad = useCallback(
@@ -198,6 +286,22 @@ export default function IssuesMap({
             />
             <span>Unassigned hotspots ({unassignedHotspots.length})</span>
           </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={showZonesLayer}
+              onChange={(event) => setShowZonesLayer(event.target.checked)}
+            />
+            <span>Delhi zones ({delhiZones.length})</span>
+          </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={showZoneIssueLinks}
+              onChange={(event) => setShowZoneIssueLinks(event.target.checked)}
+            />
+            <span>Zone to issue links</span>
+          </label>
         </div>
       </div>
 
@@ -212,6 +316,73 @@ export default function IssuesMap({
           fullscreenControl: false,
         }}
       >
+        {showZonesLayer && showZoneIssueLinks
+          ? zoneIssueData.issueLinks.map((link, index) => {
+              const strokeColor = zoneColorById.get(link.zoneId) ?? "#64748b";
+              return (
+                <Polyline
+                  key={`zone-link-${link.zoneId}-${index}`}
+                  path={[
+                    { lat: link.zoneLat, lng: link.zoneLng },
+                    { lat: link.issueLat, lng: link.issueLng },
+                  ]}
+                  options={{
+                    strokeColor,
+                    strokeOpacity: 0.28,
+                    strokeWeight: 1.6,
+                    geodesic: false,
+                    clickable: false,
+                  }}
+                />
+              );
+            })
+          : null}
+
+        {showZonesLayer
+          ? delhiZones.map((zone) => {
+              const unresolvedCount =
+                zoneIssueData.unresolvedCountByZone.get(zone.id) ?? 0;
+              const zoneColor = zoneColorById.get(zone.id) ?? "#64748b";
+              return (
+                <OverlayView
+                  key={`zone-${zone.id}`}
+                  position={{ lat: zone.lat, lng: zone.lng }}
+                  mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                >
+                  <div className="group relative -translate-x-1/2 -translate-y-1/2">
+                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 rounded-full border border-white/60 bg-slate-900/90 px-2 py-0.5 text-[10px] font-semibold text-white shadow-md">
+                      {unresolvedCount}
+                    </div>
+                    <div
+                      className="grid h-10 w-10 place-items-center rounded-full border-2 text-white shadow-lg"
+                      style={{
+                        backgroundColor: zoneColor,
+                        borderColor: "#ffffff",
+                      }}
+                    >
+                      <span className="text-[10px] font-bold uppercase">
+                        {zone.name
+                          .split(" ")
+                          .map((part) => part[0])
+                          .join("")
+                          .slice(0, 3)}
+                      </span>
+                    </div>
+                    <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden w-48 -translate-x-1/2 rounded-lg border border-slate-300/55 bg-white/95 p-2 text-xs text-slate-700 shadow-[0_10px_20px_rgba(2,6,23,0.14)] group-hover:block">
+                      <p className="font-semibold text-slate-900">
+                        {zone.name}
+                      </p>
+                      <p className="mt-0.5 text-slate-600">{zone.ward}</p>
+                      <p className="mt-1 font-semibold text-slate-800">
+                        Active unresolved issues: {unresolvedCount}
+                      </p>
+                    </div>
+                  </div>
+                </OverlayView>
+              );
+            })
+          : null}
+
         {showIssueMarkers
           ? issues.map((issue) => (
               <OverlayView

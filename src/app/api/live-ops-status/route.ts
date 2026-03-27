@@ -6,6 +6,26 @@ type LiveIssueInput = {
   assignedDepartmentId?: string;
 };
 
+function normalizeLiveSummary(text: string): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return "";
+  }
+
+  // If the model stops after a connector word, treat as incomplete.
+  const danglingConnector = /\b(with|and|or|to|of|in|on|for|at|from|across|under|over|all)\.?$/i;
+  if (danglingConnector.test(compact)) {
+    return "";
+  }
+
+  // Ensure a complete sentence ending.
+  if (!/[.!?]$/.test(compact)) {
+    return `${compact}.`;
+  }
+
+  return compact;
+}
+
 function heuristicSummary(issues: LiveIssueInput[]): string {
   if (!issues.length) {
     return "No issues are currently open. Operations are stable across departments.";
@@ -89,8 +109,9 @@ export async function POST(request: Request) {
       .join(", ");
 
     const prompt = [
-      "You are generating a short operations status update for a municipal superadmin dashboard.",
-      "Return 1 concise paragraph (max 55 words) with tone: practical, calm, actionable.",
+      "You are generating a short operations status update for a municipal commissioner dashboard.",
+      "Return exactly 1 complete paragraph in 45 to 80 words with tone: practical, calm, actionable.",
+      "Do not end mid-sentence.",
       "Include one suggestion.",
       "Use plain text only.",
       `Total issues: ${total}`,
@@ -110,7 +131,7 @@ export async function POST(request: Request) {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.35,
-          maxOutputTokens: 140,
+          maxOutputTokens: 220,
         },
       }),
     });
@@ -129,9 +150,11 @@ export async function POST(request: Request) {
       }>;
     };
 
-    const text =
+    const modelText =
       data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ||
       heuristicSummary(issues);
+
+    const text = normalizeLiveSummary(modelText) || heuristicSummary(issues);
 
     return NextResponse.json({
       signature,

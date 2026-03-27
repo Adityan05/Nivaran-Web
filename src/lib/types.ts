@@ -1,10 +1,15 @@
-export type Role = "super_admin" | "department_head" | "engineer";
+export type Role =
+  | "commissioner"
+  | "department_head"
+  | "zonal_officer"
+  | "engineer";
 
 export type IssueStatus =
   | "Reported"
   | "Acknowledged"
   | "In Progress"
   | "Resolved"
+  | "Verified"
   | "Rejected";
 
 export type Urgency = "Low" | "Medium" | "High";
@@ -13,15 +18,19 @@ export interface Department {
   id: string;
   code: string;
   name: string;
+  description?: string;
+  createdAt?: string;
 }
 
 export interface TeamMember {
   id: string;
   fullName: string;
   email: string;
+  password?: string;
   role: Role;
   departmentId: string;
   area: string;
+  zoneId?: string;
   workload: number;
   active: boolean;
 }
@@ -69,6 +78,7 @@ export interface IssueRecord {
   tags: string[];
   imageUrl: string;
   locationAddress: string;
+  zoneId?: string;
   lat: number;
   lng: number;
   userId?: string;
@@ -83,6 +93,7 @@ export interface IssueRecord {
   affectedUserIds?: string[];
   voters?: Record<string, "upvote" | "downvote">;
   duplicateOfIssueId?: string;
+  evidenceImages?: string[];
 }
 
 export interface AppNotification {

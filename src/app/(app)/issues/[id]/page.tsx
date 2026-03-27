@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { notFound, useParams } from "next/navigation";
+import { notFound, useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "@/lib/store";
 import {
@@ -21,6 +21,7 @@ import { IssueStatus } from "@/lib/types";
 
 export default function IssueDetailsPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const issueId = params.id;
 
   const sessionUser = useAppStore((s) => s.sessionUser);
@@ -51,6 +52,10 @@ export default function IssueDetailsPage() {
   );
 
   if (!issue) {
+    notFound();
+  }
+
+  if (issue.status === "Verified") {
     notFound();
   }
 
@@ -310,6 +315,19 @@ export default function IssueDetailsPage() {
                 className="ui-btn-primary mt-3 w-full"
                 onClick={() => {
                   if (!sessionUser || !selectedStatus) return;
+
+                  if (
+                    sessionUser.role === "engineer" &&
+                    selectedStatus === "Resolved"
+                  ) {
+                    const trimmedNote = note.trim();
+                    const targetPath = trimmedNote
+                      ? `/issues/${issue.id}/resolve?note=${encodeURIComponent(trimmedNote)}`
+                      : `/issues/${issue.id}/resolve`;
+                    router.push(targetPath);
+                    return;
+                  }
+
                   updateIssueStatus(
                     issue.id,
                     selectedStatus,
@@ -320,9 +338,12 @@ export default function IssueDetailsPage() {
                 }}
                 disabled={!selectedStatus}
               >
-                {selectedStatus
-                  ? `Update to ${selectedStatus}`
-                  : "Update Status"}
+                {selectedStatus === "Resolved" &&
+                sessionUser?.role === "engineer"
+                  ? "Open Camera to Resolve"
+                  : selectedStatus
+                    ? `Update to ${selectedStatus}`
+                    : "Update Status"}
               </button>
             </>
           ) : (
