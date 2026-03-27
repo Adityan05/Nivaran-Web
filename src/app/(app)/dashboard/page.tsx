@@ -259,8 +259,12 @@ export default function DashboardPage() {
         <section className="ui-card border-sky-300/45 bg-gradient-to-b from-sky-50/90 to-white p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-lg font-semibold tracking-tight text-slate-900">
-                Live Operations Status
+              <h3 className="inline-flex items-center gap-2 text-lg font-semibold tracking-tight text-slate-900">
+                <span className="relative inline-flex h-3 w-3">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-red-500/80 animate-ping" />
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-red-600 animate-pulse" />
+                </span>
+                Live Status
               </h3>
               <p className="mt-1 text-sm text-slate-600">
                 AI summary is reused across refreshes and regenerates only when

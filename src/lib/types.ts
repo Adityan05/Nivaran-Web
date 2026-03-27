@@ -25,6 +25,7 @@ export interface TeamMember {
   id: string;
   fullName: string;
   email: string;
+  password?: string;
   role: Role;
   departmentId: string;
   area: string;
@@ -91,6 +92,7 @@ export interface IssueRecord {
   affectedUserIds?: string[];
   voters?: Record<string, "upvote" | "downvote">;
   duplicateOfIssueId?: string;
+  evidenceImages?: string[];
 }
 
 export interface AppNotification {

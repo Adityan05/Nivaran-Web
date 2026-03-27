@@ -54,7 +54,7 @@ interface AppState {
   initMockData: () => Promise<void>;
   refreshFloodRiskAlerts: (issues: IssueRecord[]) => Promise<void>;
   refreshLiveOpsStatus: (issues: IssueRecord[]) => Promise<void>;
-  loginAs: (email: string) => Promise<{ ok: boolean; message: string }>;
+  loginAs: (email: string, password: string) => Promise<{ ok: boolean; message: string }>;
   logout: () => void;
   assignIssue: (issueId: string, assigneeId: string, actorId: string) => void;
   rerouteIssue: (
@@ -69,6 +69,12 @@ interface AppState {
     actorId: string,
     note?: string,
   ) => void;
+  resolveIssueWithEvidence: (
+    issueId: string,
+    actorId: string,
+    imageBlob: Blob,
+    note?: string,
+  ) => Promise<{ ok: boolean; message: string }>;
   addComment: (issueId: string, actorId: string, text: string) => void;
   markNotificationRead: (notificationId: string) => void;
 }
@@ -240,6 +246,7 @@ function mapUserRow(row: JsonObject): TeamMember | null {
     id: String(row.id ?? ""),
     fullName: String(row.full_name ?? row.fullName ?? row.name ?? "Unknown"),
     email: String(row.email ?? ""),
+    password: row.login_password ? String(row.login_password) : undefined,
     role,
     departmentId: String(row.department_id ?? row.departmentId ?? ""),
     area: String(row.area ?? row.zone_name ?? ""),
@@ -254,6 +261,7 @@ function mapIssueRow(row: JsonObject): IssueRecord {
   const lng = Number(row.location_lng ?? row.lng ?? 0);
   const imageUrls = toStringArray(row.image_urls ?? row.imageUrls);
   const imageUrl = String(row.image_url ?? row.imageUrl ?? imageUrls[0] ?? "");
+  const evidenceImages = toStringArray(row.evidence_images ?? row.evidenceImages);
   const status = normalizeStatus(row.status);
   const locationAddress = String(row.location_address ?? row.locationAddress ?? "");
   const zoneId = inferZoneId({
@@ -320,6 +328,7 @@ function mapIssueRow(row: JsonObject): IssueRecord {
       : row.duplicateOfIssueId
         ? String(row.duplicateOfIssueId)
         : undefined,
+    evidenceImages,
   };
 }
 
@@ -700,15 +709,21 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      loginAs: async (email) => {
+      loginAs: async (email, password) => {
         const normalized = email.trim().toLowerCase();
         if (!normalized) {
           return { ok: false, message: "Email is required." };
+        }
+        if (!password) {
+          return { ok: false, message: "Password is required." };
         }
 
         const user = get().users.find((u) => u.email.toLowerCase() === normalized);
         if (!user) {
           return { ok: false, message: "No matching ops user profile found for this email." };
+        }
+        if (!user.password || user.password !== password) {
+          return { ok: false, message: "Invalid password." };
         }
         if (!user.active) {
           return { ok: false, message: "This account is deactivated." };
@@ -946,6 +961,15 @@ export const useAppStore = create<AppState>()(
           return;
         }
 
+        if (
+          actor.role === "engineer" &&
+          status === "Resolved" &&
+          (!targetIssue.evidenceImages || targetIssue.evidenceImages.length === 0)
+        ) {
+          // Engineers must resolve through the camera evidence flow.
+          return;
+        }
+
         const nextNotifications = [...state.notifications];
         if (targetIssue.assignedToId) {
           nextNotifications.unshift({
@@ -1027,6 +1051,128 @@ export const useAppStore = create<AppState>()(
         })().catch((error) => {
           console.error("Failed to persist status update", error);
         });
+      },
+
+      resolveIssueWithEvidence: async (issueId, actorId, imageBlob, note) => {
+        const state = get();
+        const actor = state.users.find((u) => u.id === actorId);
+        if (!actor) {
+          return { ok: false, message: "No active user session found." };
+        }
+
+        const targetIssue = state.issues.find((issue) => issue.id === issueId);
+        if (!targetIssue) {
+          return { ok: false, message: "Issue not found." };
+        }
+
+        const allowed = getAllowedStatusTransitions(actor, targetIssue);
+        if (actor.role !== "engineer" || !allowed.includes("Resolved")) {
+          return { ok: false, message: "You are not allowed to resolve this issue." };
+        }
+
+        if (!(imageBlob instanceof Blob) || imageBlob.size === 0) {
+          return { ok: false, message: "Capture an evidence photo first." };
+        }
+
+        const formData = new FormData();
+        formData.append("actorId", actorId);
+        formData.append("note", note?.trim() ?? "");
+        formData.append("evidence", imageBlob, `${issueId}.jpg`);
+
+        let response: Response;
+        try {
+          response = await fetch(`/api/issues/${encodeURIComponent(issueId)}/resolve`, {
+            method: "POST",
+            body: formData,
+          });
+        } catch (error) {
+          console.error("Failed to call issue resolve API", error);
+          return {
+            ok: false,
+            message:
+              "Could not reach resolution API. Check your internet/tunnel connection and try again.",
+          };
+        }
+
+        let payload: {
+          ok?: boolean;
+          message?: string;
+          evidenceUrl?: string;
+          resolvedAt?: string;
+          actorName?: string;
+        } | null = null;
+
+        try {
+          payload = (await response.json()) as {
+            ok?: boolean;
+            message?: string;
+            evidenceUrl?: string;
+            resolvedAt?: string;
+            actorName?: string;
+          };
+        } catch {
+          payload = null;
+        }
+
+        if (!response.ok || !payload?.ok || !payload.evidenceUrl) {
+          return {
+            ok: false,
+            message: payload?.message?.trim() || "Evidence upload failed.",
+          };
+        }
+
+        const evidenceUrl = payload.evidenceUrl;
+        const resolvedAt = payload.resolvedAt?.trim() || nowISO();
+        const actorName = payload.actorName?.trim() || actor.fullName;
+
+        const notificationBody = `${issueId} moved to Resolved.`;
+        const nextNotifications = [...state.notifications];
+        if (targetIssue.assignedToId) {
+          nextNotifications.unshift({
+            id: uid("ntf"),
+            userId: targetIssue.assignedToId,
+            title: "Status changed: Resolved",
+            body: notificationBody,
+            isRead: false,
+            issueId,
+            createdAt: nowISO(),
+          });
+        }
+
+        const evidenceNote = note?.trim()
+          ? `${note.trim()}\nEvidence: ${evidenceUrl}`
+          : `Evidence captured and uploaded. ${evidenceUrl}`;
+
+        set({
+          issues: state.issues.map((issue) =>
+            issue.id === issueId
+              ? {
+                  ...issue,
+                  status: "Resolved",
+                  isUnresolved: false,
+                  evidenceImages: [evidenceUrl],
+                  lastStatusUpdateAt: resolvedAt,
+                  lastStatusUpdateBy: actorName,
+                }
+              : issue,
+          ),
+          events: [
+            {
+              id: uid("evt"),
+              issueId,
+              type: "status_change",
+              title: "Status changed to Resolved",
+              note: evidenceNote,
+              actorId,
+              actorName,
+              createdAt: resolvedAt,
+            },
+            ...state.events,
+          ],
+          notifications: nextNotifications,
+        });
+
+        return { ok: true, message: "Issue resolved with evidence." };
       },
 
       addComment: (issueId, actorId, text) => {

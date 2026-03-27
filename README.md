@@ -17,8 +17,10 @@ The app uses Supabase as the runtime data source and an Edge Function + Database
 ## Highlights
 
 - Supabase-backed issue, user, event, comment, and notification flows
+- Email + password login for ops_users admin accounts
 - Role model: commissioner, department_head, zonal_officer, engineer
 - Insert-only webhook automation to assign nearest zonal officer
+- Engineer-only resolve flow requires mobile camera capture and evidence upload before status can move to Resolved
 - Dashboard AI live operations summary with fallback heuristics
 - Flood-risk panel with forecast + historical context
 - Map layers for issues, risk alerts, hotspots, and 13 Delhi zone markers
@@ -187,7 +189,23 @@ npx supabase secrets set AUTO_ASSIGN_WEBHOOK_SECRET=YOUR_RANDOM_SECRET
 - Method: POST
 - Header: x-webhook-secret = same value as AUTO_ASSIGN_WEBHOOK_SECRET (if enabled)
 
+7. Create resolution evidence storage bucket:
+
+```sql
+insert into storage.buckets (id, name, public)
+values ('resolved_images', 'resolved_images', true)
+on conflict (id) do nothing;
+```
+
+Note: engineer resolve uploads now go through server API `/api/issues/[id]/resolve` using `SUPABASE_SERVICE_ROLE_KEY`, so client-side storage policies are not required for this flow.
+
 ## APIs
+
+- POST /api/issues/[id]/resolve
+  - Engineer-only resolution endpoint.
+  - Accepts multipart form-data (`actorId`, optional `note`, `evidence` image file).
+  - Uploads image to `resolved_images` bucket and updates `issues.evidence_images`.
+  - Marks issue as `Resolved` only after successful evidence upload.
 
 - POST /api/live-ops-status
   - Generates commissioner live status summary.
@@ -231,6 +249,12 @@ Webhook not assigning:
 - Verify edge function deploy status and logs.
 - Verify assigned_department_id is present in inserted issue row.
 
+Evidence upload fails on mobile resolve page:
+
+- Verify `resolved_images` bucket exists.
+- Verify `SUPABASE_SERVICE_ROLE_KEY` is present in server environment.
+- Confirm the app URL is secure (`https`) so camera capture is allowed.
+
 ## Run Commands
 
 ```bash
@@ -239,6 +263,24 @@ npm run build
 npm run start
 npm run lint
 ```
+
+## Admin Login Password Setup
+
+The login screen now validates both email and password against `ops_users.login_password`.
+
+Temporary bootstrap SQL (same password for all users):
+
+```sql
+alter table public.ops_users
+add column if not exists login_password text;
+
+update public.ops_users
+set login_password = '12345678'
+where login_password is null
+  or login_password = '';
+```
+
+Note: this plaintext password setup is only for initial testing. Move to hashed passwords before production.
 
 ## Contributing
 
